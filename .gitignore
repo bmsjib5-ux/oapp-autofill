@@ -1,0 +1,23 @@
+# ---- ความลับ / ค่าเฉพาะเครื่อง: ห้าม commit เด็ดขาด ----
+config.bat
+config.key
+*.enc.json
+bms_db_config*.json
+apikey.txt
+
+# ---- ผลจาก build.bat (PyInstaller) ----
+dist/
+build/
+*.spec
+
+# ---- Python / เครื่องมือ ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
+.claude/
+
+# ---- log ที่อาจมี HN/VN ของคนไข้ ----
+*.log
+*.jsonl

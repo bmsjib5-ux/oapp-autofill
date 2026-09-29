@@ -1,0 +1,5 @@
+pymysql
+psycopg2-binary
+cryptography
+# สำหรับ build.bat (สร้าง server.exe / gateway.exe / gateway_ui.exe)
+pyinstaller

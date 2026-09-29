@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>ระบบนัดหมายผู้ป่วย</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0E3A61; --ink-2:#3D6489; --ink-3:#3B5470;
+  --paper:#DCE9F6; --card:#FFFFFF; --rule:#C5DAEB; --rule-2:#A3C2DC;
+  --signal:#0B5FA5; --signal-bg:#DCEBF9;
+  --caution:#8A5F09; --caution-bg:#FCF2DC;
+  --alert:#C0392B; --alert-bg:#FCEAE8;
+  --ok:#1E8449; --ok-bg:#E4F3EA;
+  --user:#6A4BB8; --user-bg:#EDE7F9;
+  /* โซนตัวกรอง = ครีม/เหลือง · โซนผลลัพธ์ = ขาว/ฟ้า — แยกสีกันไม่ให้อ่านแล้วกลืนเป็นก้อนเดียว */
+  --filter-bg:#FDFBF3; --filter-head:#F7EFD6; --filter-edge:#D9A82C;
+  --head1:#0B4C86; --head2:#1673C0; --panel:#E6EFF9; --tint:#F7FBFF;
+  --sans:"IBM Plex Sans Thai",system-ui,sans-serif;
+  --mono:"IBM Plex Mono","IBM Plex Sans Thai",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+/* ต้องมาก่อนกฎอื่น — .xxx{display:flex} จะทับ [hidden] ของ browser ทำให้ hidden ไม่ทำงาน
+   (เคยทำให้แถบเตือน "ยังไม่ได้เชื่อมต่อ" กับ pager โผล่ค้างทั้งที่สั่งซ่อนแล้ว) */
+[hidden]{display:none !important}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1980px;margin:0 auto;padding:12px;padding-bottom:58px}  /* เว้นที่ให้ footer ที่ตรึงไว้ */
+
+/* ---- หัวจอ + ตัวกรอง ตรึงไว้ตอนเลื่อนตาราง ---- */
+.topfix{position:sticky;top:0;z-index:40;background:var(--paper);margin:-12px -12px 0;padding:12px 12px 6px}
+.topfix.stuck{box-shadow:0 5px 12px rgba(14,58,97,.16);border-bottom:1px solid var(--rule-2)}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 13px;background:linear-gradient(180deg,var(--head2),var(--head1));color:#fff;border-radius:6px 6px 0 0;border:1px solid var(--head1);box-shadow:0 1px 3px rgba(14,58,97,.25)}
+header h1{font-size:19px;font-weight:600}
+header .ctx{margin-left:auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:15.5px;color:#BFD9F2}
+header .ctx b{font-weight:500;color:#fff}
+/* ปุ่มกลับหน้าทำนัด — อยู่มุมซ้ายล่างใน footer */
+.backbtn{font-family:var(--sans);font-size:15.5px;font-weight:500;padding:5px 13px;border-radius:4px;
+  border:1px solid var(--head2);background:linear-gradient(180deg,#fff,var(--tint));color:var(--head1);
+  text-decoration:none;white-space:nowrap}
+.backbtn:hover{background:linear-gradient(180deg,var(--head2),var(--head1));color:#fff;border-color:var(--head1)}
+.conn-mini{display:inline-flex;align-items:center;gap:6px;font-size:15px;padding:4px 10px;border-radius:4px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.14);color:#fff;font-family:var(--sans)}
+.conn-mini .dot{width:9px;height:9px;border-radius:50%;background:#9FB8CC;flex:none}
+.conn-mini[data-state="ok"] .dot{background:#5FD08A}
+.conn-mini[data-state="busy"] .dot{background:#FFD466}
+.conn-mini[data-state="demo"] .dot{background:#F09A94}
+
+/* ---- เตือนตอนไม่มี session ---- หน้านี้รับ session ต่อจากหน้าทำนัด ไม่มีช่องวางเอง */
+.connwarn{display:flex;align-items:center;gap:11px;flex-wrap:wrap;padding:9px 13px;background:var(--caution-bg);
+  border:1px solid #E5D4A6;border-top:0;border-left:4px solid var(--caution);color:var(--caution);font-size:16px}
+.connwarn .hbtn{margin-left:auto;font-size:15.5px;font-weight:500;padding:5px 12px;border-radius:4px;
+  border:1px solid var(--caution);background:#fff;color:var(--caution);text-decoration:none;white-space:nowrap}
+.connwarn .hbtn:hover{background:var(--caution);color:#fff}
+
+/* ---- กล่อง Filter ---- แถบเหลืองซ้าย + พื้นครีม แยกโซน "ตั้งเงื่อนไข" ออกจากโซน "ผลลัพธ์" ชัด ๆ */
+.group{background:var(--filter-bg);border:1px solid var(--rule);border-top:0;border-left:4px solid var(--filter-edge);border-radius:0 0 6px 6px}
+.group > .gh{font-size:14.5px;font-weight:600;padding:4px 12px;background:var(--filter-head);border-bottom:1px solid #E2D3A8;color:var(--caution);letter-spacing:.06em;text-transform:uppercase}
+.grid{display:grid;grid-template-columns:auto auto auto auto 1fr;gap:7px 10px;align-items:center;padding:11px 13px}
+.grid label.k{font-size:16px;color:var(--ink);text-align:right;white-space:nowrap}
+.grid .cell{display:flex;align-items:center;gap:6px;min-width:0}
+input[type=date],input[type=text]{font-family:var(--mono);font-size:16px;color:var(--ink);padding:4px 7px;border:1px solid var(--rule-2);border-radius:3px;background:#FBFDFF;max-width:100%}
+input:focus{outline:2px solid var(--signal);outline-offset:-1px;border-color:var(--signal)}
+input[type=date]{width:158px}
+.be{display:none}   /* พ.ศ. เดิม — ซ่อน เพราะช่องวันที่แสดง พ.ศ. อยู่แล้ว */
+/* ช่องวันที่แบบ พ.ศ. (วว/ดด/ปปปป) + ปุ่มปฏิทิน — แทนหน้าตา native date ที่เป็นฝรั่ง (ค.ศ.) */
+.thdate-wrap{position:relative;display:inline-flex;align-items:center;gap:4px}
+input.thdate-txt{width:120px;text-align:center}
+input.thdate-native{position:absolute;right:0;top:50%;width:1px;height:1px;opacity:0;pointer-events:none;margin:0;padding:0;border:0;min-width:0}
+button.thdate-cal{font-size:15px;line-height:1;padding:3px 7px;border:1px solid var(--rule-2);border-radius:3px;background:#FBFDFF;cursor:pointer}
+button.thdate-cal:hover:not(:disabled){background:var(--signal-bg);border-color:var(--signal)}
+input.thdate-txt:disabled,button.thdate-cal:disabled{opacity:.5;cursor:default}
+/* ช่องพิมพ์ค้นหา (แพทย์ / คลินิก / ห้อง) — ใช้ฟอนต์ sans เพราะเป็นชื่อไทย */
+input.wide{min-width:300px;width:100%;font-family:var(--sans);background:#fff}
+input.wide::placeholder{color:#8FA8BE;font-size:15px}
+input.hn{width:150px}
+.chk{display:flex;align-items:center;gap:6px;font-size:16px;cursor:pointer;white-space:nowrap}
+.chk input{width:16px;height:16px;accent-color:var(--signal);cursor:pointer}
+.chk.dim{color:var(--ink-2)}
+/* ช่องวันนัดตอนสลับไปโหมด "บันทึกนัดในวันที่" — หรี่ลงให้รู้ว่าไม่มีผลกับผลลัพธ์แล้ว */
+.off{opacity:.42;filter:grayscale(.5)}
+input:disabled,button:disabled{cursor:not-allowed}
+input:disabled{background:#EDF1F5;color:var(--ink-3)}
+
+button{font-family:var(--sans);font-size:16px;font-weight:500;padding:5px 12px;border-radius:4px;border:1px solid var(--rule-2);background:linear-gradient(180deg,#fff,var(--tint));color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--ink-2)}
+button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+button.btn-blue{background:linear-gradient(180deg,#1673C0,#0B4C86);border-color:#0A4373;color:#fff;font-weight:600}
+button.btn-blue:hover{background:linear-gradient(180deg,#1C81D4,#0A4373)}
+button.btn-amber{background:linear-gradient(180deg,#5F7183,#4E6274);border-color:#44576A;color:#fff;font-weight:600}
+button.btn-amber:hover{background:linear-gradient(180deg,#6B7C8D,#3E5163)}
+button:disabled{background:#EEF4FA;color:var(--ink-3);border-color:var(--rule);cursor:not-allowed;font-weight:500}
+button.btn-blue:disabled,button.btn-amber:disabled{background:#E4EAF0;color:var(--ink-3);border-color:var(--rule)}
+.quick button{font-size:14.5px;padding:4px 9px}
+
+/* ---- แถบสรุป / เครื่องมือ ---- ตรึงเป็น footer ไม่เลื่อนตามตาราง */
+.tools{position:fixed;left:0;right:0;bottom:0;z-index:45;display:flex;align-items:center;gap:9px;
+  flex-wrap:wrap;padding:7px 16px;background:linear-gradient(180deg,#FFFFFF,#F2F8FD);
+  border-top:3px solid var(--head2);box-shadow:0 -3px 12px rgba(14,58,97,.18)}
+.sum{font-size:16px;color:var(--ink-2)}
+.sum b{color:var(--ink);font-weight:600}
+.sum .m{color:var(--ink-3)}
+.sum .bad{color:var(--alert)}
+.pager{display:flex;gap:4px}
+.pager button{font-family:var(--mono);font-size:14.5px;padding:4px 10px}
+.pager button.on{cursor:default}
+#toast{font-size:16px;color:var(--signal);font-weight:500}
+#toast.err{color:var(--alert)}
+#toast.ok{color:var(--ok)}
+
+/* ---- ตาราง ---- */
+.tblcard{margin-top:9px;background:var(--card);border:1px solid var(--rule-2);border-top:3px solid var(--head2);border-radius:6px;overflow:hidden;box-shadow:0 1px 3px rgba(14,58,97,.10)}
+.tblcard > .gh{font-size:14.5px;font-weight:600;padding:5px 12px;background:var(--panel);border-bottom:1px solid var(--rule-2);color:var(--head1);letter-spacing:.06em;text-transform:uppercase}
+.tblwrap{overflow:auto;max-height:calc(100vh - 268px)}
+table.reg{width:100%;border-collapse:collapse;font-size:16px;white-space:nowrap}
+table.reg th{position:sticky;top:0;z-index:5;background:linear-gradient(180deg,#E8F1FA,#D8E7F5);
+  border-bottom:2px solid var(--head2);border-right:1px solid #BFD5E8;padding:6px 8px;text-align:left;
+  font-size:14.5px;font-weight:600;color:var(--head1)}
+table.reg td{border-bottom:1px solid #E7F0F8;border-right:1px solid #EEF4FA;padding:5px 8px;vertical-align:top}
+/* ไล่สีเป็นกลุ่มคอลัมน์ — กวาดตาตามแนวนอนง่ายขึ้น
+   1 ติ๊กเลือก · 2-6 วัน/เวลา · 7-8 ตัวคนไข้ · 9-11 สถานที่+แพทย์ · 12-15 รายการสั่งตรวจ
+   ตัวเลขผูกกับลำดับคอลัมน์ ถ้าเพิ่ม/ย้ายคอลัมน์ต้องขยับตามด้วย */
+table.reg th:nth-child(n+2):nth-child(-n+6){background:linear-gradient(180deg,#E4F0F7,#D2E6F1)}
+table.reg th:nth-child(n+7):nth-child(-n+8){background:linear-gradient(180deg,#EAF2E9,#DCEADB)}
+table.reg th:nth-child(n+12):nth-child(-n+15){background:linear-gradient(180deg,#F0ECF8,#E4DDF2)}
+table.reg td:nth-child(n+2):nth-child(-n+6){background:#F7FCFE}
+table.reg td:nth-child(n+7):nth-child(-n+8){background:#FAFCF9}
+table.reg td:nth-child(n+12):nth-child(-n+15){background:#FBFAFE}
+table.reg th:nth-child(6),table.reg td:nth-child(6),
+table.reg th:nth-child(8),table.reg td:nth-child(8),
+table.reg th:nth-child(11),table.reg td:nth-child(11){border-right:1px solid var(--rule-2)}
+/* คอลัมน์ติ๊กเลือก — คลิกที่ช่องนี้ต้องไม่ไปกาง/ปิดแผงรายละเอียดของแถว */
+th.sel,td.sel{width:34px;text-align:center;padding:5px 6px}
+td.sel input,th.sel input{width:16px;height:16px;accent-color:var(--signal);cursor:pointer;vertical-align:middle}
+table.reg tr.r.picked > td{background:#FFF6DC}
+table.reg tr.r.picked:hover > td{background:#FFEFC2}
+table.reg tr.r{cursor:pointer}
+table.reg tr.r:nth-child(4n+3) > td{filter:brightness(.985)}
+table.reg tr.r:hover > td{background:#EAF4FF;filter:none}
+table.reg tr.r.on > td{background:var(--signal-bg);filter:none;border-bottom-color:var(--signal)}
+table.reg tr.r.on > td:first-child{box-shadow:inset 3px 0 0 var(--signal)}
+td.num,th.num{text-align:right;font-family:var(--mono)}
+td.mono{font-family:var(--mono)}
+td.name{white-space:normal;min-width:190px}
+td.free{white-space:normal;max-width:280px;overflow:hidden;text-overflow:ellipsis}
+.dash{color:var(--rule-2)}
+.pill{display:inline-block;font-size:13.5px;font-family:var(--mono);padding:0 6px;border-radius:9px;background:var(--signal-bg);color:var(--signal);border:1px solid #BBD8F2}
+/* แถวรายละเอียดที่กางออกมา */
+tr.det > td{background:#EAF3FC !important;border-bottom:3px solid var(--signal);white-space:normal;
+  padding:12px 14px 14px;box-shadow:inset 3px 0 0 var(--signal)}
+/* ฟอร์มนัดหมาย (อ่านอย่างเดียว) — เลย์เอาต์เดียวกับหน้าทำนัด v3 */
+.detwrap{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.detcol{flex:1 1 420px;min-width:0}
+.detcol:first-child{max-width:640px}
+/* ฟอร์ม = การ์ดขาว ขอบน้ำเงิน · หัวข้อฟิลด์พื้นฟ้าอ่อน */
+.form{border:1px solid var(--rule-2);border-top:3px solid var(--head2);border-radius:5px;overflow:hidden;
+      background:#fff;box-shadow:0 1px 3px rgba(14,58,97,.10)}
+.frow{display:grid;grid-template-columns:118px 1fr;border-bottom:1px solid #E7F0F8}
+.frow:last-child{border-bottom:0}
+.frow:nth-child(even) .fv{background:#FAFDFF}
+.frow .fk{padding:5px 10px;background:var(--panel);color:var(--head1);font-size:15px;
+          border-right:1px solid var(--rule-2);font-weight:500}
+.frow .fv{padding:5px 10px;font-size:15.5px;color:var(--ink);min-width:0}
+.frow .fv.mono{font-family:var(--mono)}
+.frow .fv.wrap{white-space:pre-wrap;word-break:break-word}
+/* LAB = เขียว · X-RAY = ม่วง — คนละสีกันชัดเจน ไม่ต้องอ่านหัวข้อก็แยกออก */
+.sect{border:1px solid var(--rule);border-radius:5px;overflow:hidden;background:#fff;margin-bottom:11px;
+      box-shadow:0 1px 3px rgba(14,58,97,.08)}
+.sect.lab{border-top:3px solid var(--ok)}
+.sect.xray{border-top:3px solid var(--user)}
+tr.det h4{margin:0;font-size:14.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+          display:flex;align-items:center;gap:7px;padding:5px 11px;border-bottom:1px solid var(--rule)}
+.sect.lab  h4{background:var(--ok-bg);color:#14603A;border-bottom-color:#C9E6D5}
+.sect.xray h4{background:var(--user-bg);color:var(--user);border-bottom-color:#DCD2F0}
+tr.det h4 .cnt{font-family:var(--mono);font-size:13px;font-weight:600;padding:0 7px;border-radius:9px;
+               background:#fff;border:1px solid currentColor}
+.sect .body{padding:9px 11px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{display:inline-flex;align-items:baseline;gap:5px;font-size:15px;padding:2px 9px;border-radius:4px;
+      background:var(--ok-bg);border:1px solid #BFE3CD;color:#14603A}
+.chip b{font-family:var(--mono);font-size:13.5px;font-weight:600;color:var(--ok)}
+.sect.xray .chip{background:var(--user-bg);border-color:#D6CBEE;color:#4A3488}
+.sect.xray .chip b{color:var(--user)}
+tr.det .none{font-size:15px;color:var(--ink-2)}
+tr.det .none.bad{color:var(--alert)}
+.empty{padding:34px 18px;text-align:center;color:var(--ink-2)}
+.empty b{display:block;font-size:19px;font-weight:500;margin-bottom:5px;color:var(--ink)}
+.empty .big{font-family:var(--mono);font-size:30px;color:var(--rule-2);margin-bottom:8px}
+.srvwarn{margin-top:9px;padding:8px 12px;background:var(--caution-bg);border-left:3px solid var(--caution);color:var(--caution);font-size:16px;border-radius:3px}
+.srvwarn code{font-family:var(--mono);background:#fff;padding:0 4px;border-radius:2px}
+@media (max-width:1200px){ .grid{grid-template-columns:auto 1fr} .grid label.k{text-align:left} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="topfix" id="topfix">
+<header>
+  <h1>ระบบนัดหมายผู้ป่วย</h1>
+  <div class="ctx">
+    <span id="c-hosp-wrap" hidden>โรงพยาบาล <b id="c-hosp"></b></span>
+    <span id="c-user-wrap" hidden>ผู้ใช้ <b id="c-user"></b><b id="c-login" hidden></b></span>
+    <span class="conn-mini" id="conn-mini" data-state="demo" title="สถานะการเชื่อมต่อ BMS Session">
+      <span class="dot"></span><span id="conn-mini-text">ยังไม่เชื่อมต่อ</span>
+    </span>
+  </div>
+</header>
+
+<!-- โผล่เฉพาะตอนเชื่อมต่อไม่ได้จริง ๆ — สถานะตอนเชื่อมต่อสำเร็จไปอยู่บนหัวจอแทน -->
+<div class="connwarn" id="connwarn" hidden>
+  <b>ยังไม่ได้เชื่อมต่อ BMS Session</b>
+  <span id="conn-text"></span>
+  <a class="hbtn" href="appointment-autofill-v3.html">↗ เปิดหน้าทำนัดเพื่อเชื่อมต่อ</a>
+</div>
+
+<div class="group">
+  <div class="gh">Filter</div>
+  <div class="grid">
+    <label class="k" for="f-from" id="rangelab">การนัดหมายช่วงวันที่</label>
+    <div class="cell" id="rangewrap">
+      <input type="date" id="f-from"><span class="be" id="be-from"></span>
+    </div>
+    <label class="k" for="f-to">ถึงวันที่</label>
+    <div class="cell" id="rangewrap2">
+      <input type="date" id="f-to"><span class="be" id="be-to"></span>
+      <span class="quick" style="margin-left:6px">
+        <button id="q-today" title="วันนี้">วันนี้</button>
+        <button id="q-tomo" title="พรุ่งนี้">พรุ่งนี้</button>
+        <button id="q-7" title="วันนี้ ถึง 7 วันข้างหน้า">7 วัน</button>
+      </span>
+    </div>
+    <div class="cell">
+      <label class="chk" id="latestlab"><input type="checkbox" id="f-latest">เรียงลำดับตามวันที่มา , วันที่นัด (ล่าสุด)</label>
+    </div>
+
+    <label class="k" for="f-doctor">แพทย์ผู้นัด</label>
+    <div class="cell"><input type="text" id="f-doctor" class="wide" list="dl-doctor"
+      placeholder="ทั้งหมด — พิมพ์รหัสหรือชื่อเพื่อค้นหา" spellcheck="false" autocomplete="off"></div>
+    <label class="k" for="f-clinic">คลินิก</label>
+    <div class="cell"><input type="text" id="f-clinic" class="wide" list="dl-clinic"
+      placeholder="ทั้งหมด — พิมพ์รหัสหรือชื่อเพื่อค้นหา" spellcheck="false" autocomplete="off"></div>
+    <div class="cell">
+      <label class="k" for="f-contact" style="text-align:right">จุดแรกรับ</label>
+      <input type="text" id="f-contact" class="wide" list="dl-contact"
+        placeholder="ทั้งหมด" spellcheck="false" autocomplete="off">
+    </div>
+
+    <label class="k" for="f-hn">HN</label>
+    <div class="cell">
+      <input type="text" id="f-hn" class="hn" placeholder="ทั้งหมด" spellcheck="false" autocomplete="off">
+      <button class="btn-blue" id="f-go">&#128269; ค้นหา</button>
+      <button class="btn-amber" id="f-clear" title="ล้างตัวกรองกลับค่าเริ่มต้น">ล้าง</button>
+    </div>
+    <label class="k" for="f-room">จุดบริการ</label>
+    <div class="cell"><input type="text" id="f-room" class="wide" list="dl-room"
+      placeholder="ทั้งหมด — พิมพ์รหัสหรือชื่อเพื่อค้นหา" spellcheck="false" autocomplete="off"></div>
+    <div class="cell">
+      <label class="chk"><input type="checkbox" id="f-reg">แสดงเฉพาะผู้ที่ถูกบันทึกนัดในวันที่</label>
+      <input type="date" id="f-regdate" disabled><span class="be" id="be-reg"></span>
+    </div>
+
+    <label class="k" for="f-appuser" id="minelab">ผู้บันทึกนัด</label>
+    <div class="cell" style="grid-column:2/-1">
+      <label class="chk" title="กรองจาก oapp.app_user (ชื่อล็อกอิน HOSxP ของคนที่บันทึกใบนัด)">
+        <input type="checkbox" id="f-mine">เฉพาะใบนัดที่บันทึกโดย
+      </label>
+      <input type="text" id="f-appuser" class="wide" list="dl-appuser" style="max-width:320px"
+        placeholder="คลิกเพื่อเลือกชื่อล็อกอินของคุณจากรายการ" spellcheck="false" autocomplete="off" disabled>
+    </div>
+  </div>
+</div>
+<div class="srvwarn" id="srvwarn" hidden>
+  เปิดหน้านี้ผ่าน <code>start.bat</code> (http://localhost) — เปิดจากไฟล์ตรง ๆ จะติด CORS แล้วดึงข้อมูลไม่ได้
+</div>
+</div><!-- /topfix -->
+
+<div id="datalists" hidden></div>
+
+<div class="tblcard">
+  <div class="gh">รายการนัดหมาย</div>
+  <div class="tblwrap" id="tblwrap">
+    <div class="empty" id="empty"><div class="big">&#9646;</div><b>ยังไม่มีข้อมูล</b><p>เลือกช่วงวันที่นัดแล้วกด “ค้นหา”</p></div>
+    <table class="reg" id="reg" hidden>
+      <thead><tr>
+        <th class="sel"><input type="checkbox" id="chk-all" title="เลือก / ไม่เลือก ทั้งหน้า"></th>
+        <th class="num">ลำดับ</th>
+        <th>วันที่รับบริการ</th>
+        <th>วันนัดถัดไป</th>
+        <th>เวลานัดเริ่ม</th>
+        <th>เวลานัดถึง</th>
+        <th>HN</th>
+        <th>ชื่อผู้รับบริการ</th>
+        <th>จุดบริการ</th>
+        <th>จุดแรกรับ</th>
+        <th>แพทย์ผู้นัด</th>
+        <th>Lab</th>
+        <th>QS Slot</th>
+        <th>X-Ray</th>
+        <th>หมายเหตุ</th>
+      </tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+</div>
+
+</div><!-- /wrap -->
+
+<footer class="tools">
+  <a class="backbtn" href="appointment-autofill-v3.html" title="กลับไปหน้าทำนัด (session เดิมใช้ต่อได้เลย)">&#8617; หน้าทำนัด</a>
+  <div class="sum" id="sum"><span class="m">ยังไม่ได้ค้นหา</span></div>
+  <div class="pager" id="pager" hidden>
+    <button id="pg-prev" title="หน้าก่อนหน้า">&lsaquo; ก่อนหน้า</button>
+    <button id="pg-info" class="on" disabled>หน้า 1</button>
+    <button id="pg-next" title="หน้าถัดไป">ถัดไป &rsaquo;</button>
+  </div>
+  <span style="margin-left:auto"></span>
+  <span id="toast"></span>
+  <label class="chk" id="rotwrap" title="ขนาด/แนวกระดาษที่จะพิมพ์ — เลือกให้ตรงกับที่ใส่ในเครื่องพิมพ์ ระบบจำค่าไว้ให้">กระดาษ <select id="print-paper"></select></label>
+  <button class="btn-blue" id="btn-print" title="พิมพ์บัตรนัดตรวจของรายการที่ติ๊กเลือกไว้ (A5 แนวนอน · 1 คน = 1 แผ่น)" disabled>&#128424; พิมพ์ใบนัด</button>
+  <button id="btn-csv" title="บันทึกรายการที่แสดงอยู่เป็นไฟล์ CSV">บันทึก CSV</button>
+</footer>
+
+<!-- ตัวสร้างใบนัด ใช้ร่วมกับหน้าทำนัด (appointment-autofill-v3.html) -->
+<script src="slip.js"></script>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sqlStr=s=>String(s==null?'':s).replace(/'/g,"''");
+const PAGE_SIZE=200;
+
+/* ---------- วันที่ ---------- */
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const addD=(d,n)=>{const x=new Date(d.getTime());x.setDate(x.getDate()+n);return x;};
+function fromISO(s){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(s||'')); return m?new Date(+m[1],+m[2]-1,+m[3]):null; }
+/* HOSxP ส่งวันที่มาได้ทั้ง 2026-07-28 และ 2026-07-28T00:00:00 -> แสดงเป็น พ.ศ. d/M/yyyy */
+function thDate(s){
+  const d=fromISO(s); if(!d) return '';
+  return d.getDate()+'/'+(d.getMonth()+1)+'/'+(d.getFullYear()+543);
+}
+const hhmm=s=>{ const m=/^(\d{1,2}):(\d{2})/.exec(String(s||'').trim()); return m?String(m[1]).padStart(2,'0')+':'+m[2]:''; };
+const DOWS=['อา.','จ.','อ.','พ.','พฤ.','ศ.','ส.'];
+/* 20/10/2569 (อ.) — รูปแบบเดียวกับช่อง "วันที่นัด" ในฟอร์มนัดหมาย v3 */
+function thDateDow(s){ const d=fromISO(s); return d?thDate(s)+' ('+DOWS[d.getDay()]+')':''; }
+/* D / W / M — v3 อ่านจากคำสั่งในโน้ต ("FU 12 wk" -> 0/12/0) แต่นัดที่บันทึกแล้วไม่ได้เก็บค่านี้
+   เลยถอดกลับจากระยะห่าง วันที่รับบริการ -> วันนัด: วันที่ตรงกันนับเป็นเดือน, หาร 7 ลงตัวนับเป็นสัปดาห์ */
+function dwm(fromStr,toStr){
+  const a=fromISO(fromStr), b=fromISO(toStr);
+  if(!a||!b) return '';
+  const days=Math.round((b-a)/86400000);
+  if(days>0&&a.getDate()===b.getDate()){
+    const m=(b.getFullYear()-a.getFullYear())*12+(b.getMonth()-a.getMonth());
+    if(m>0) return '0 / 0 / '+m;
+  }
+  if(days>0&&days%7===0) return '0 / '+(days/7)+' / 0';
+  return days+' / 0 / 0';
+}
+/* ประเภท — ไม่มีคอลัมน์ใน oapp v3 อนุมานจากเหตุที่นัด ที่นี่ใช้ตารางเดียวกัน */
+const CAUSE_TYPE=[[/ฟังผล|ดูผล/,'นัดฟังผล'],[/ดูแผล|ตัดไหม/,'นัดทำหัตถการ'],[/ติดตามอาการ|ดูอาการ/,'นัดตรวจซ้ำ']];
+function apptType(cause){
+  const c=String(cause||'').trim(); if(!c) return '';
+  for(const [re,t] of CAUSE_TYPE) if(re.test(c)) return t;
+  return 'นัดตรวจซ้ำ';
+}
+function p2c(n){ return String(n).padStart(2,'0'); }
+/* ISO -> "วว/ดด/ปปปป(พ.ศ.)" สำหรับช่องวันที่ */
+function thDateField(isoStr){ const d=fromISO(isoStr); return d?(p2c(d.getDate())+'/'+p2c(d.getMonth()+1)+'/'+(d.getFullYear()+543)):''; }
+/* "วว/ดด/ปปปป(พ.ศ.)" (ปี 2 หรือ 4 หลัก · คั่นด้วย / - .) -> ISO YYYY-MM-DD · ว่าง/พังคืน '' */
+function parseThaiDate(s){
+  s=String(s||'').trim(); if(!s) return '';
+  const m=/^(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{2,4})$/.exec(s);
+  if(!m) return '';
+  let d=+m[1], mo=+m[2], y=+m[3];
+  if(y<100) y+=2500;            /* 69 -> 2569 (พ.ศ.) */
+  if(y>=2400) y-=543;          /* พ.ศ. -> ค.ศ. */
+  if(y<1900||mo<1||mo>12||d<1||d>31) return '';
+  const dt=new Date(y,mo-1,d);
+  if(isNaN(dt.getTime())||dt.getDate()!==d||dt.getMonth()!==mo-1) return '';
+  return iso(dt);
+}
+/* ห่อ <input type=date> เดิม -> โชว์ช่องข้อความ พ.ศ. + ปุ่มปฏิทิน · native ซ่อนไว้เป็นตัวเก็บค่า ISO + ปฏิทิน
+   (ตัวกรอง/CSV/preset ยังอ่าน-เขียน .value เป็น ISO เหมือนเดิม ไม่ต้องแก้) */
+function wrapThaiDate(id){
+  const nat=$(id); if(!nat||nat._thWrapped) return; nat._thWrapped=true;
+  const wrap=document.createElement('span'); wrap.className='thdate-wrap';
+  const txt=document.createElement('input');
+  txt.type='text'; txt.className='thdate-txt'; txt.placeholder='วว/ดด/ปปปป';
+  txt.setAttribute('inputmode','numeric'); txt.spellcheck=false; txt.autocomplete='off'; txt.title='วันที่ (พ.ศ.) — พิมพ์ วว/ดด/ปปปป หรือกดปฏิทิน';
+  const btn=document.createElement('button');
+  btn.type='button'; btn.className='thdate-cal'; btn.textContent='📅'; btn.tabIndex=-1; btn.title='เลือกจากปฏิทิน';
+  nat.parentNode.insertBefore(wrap, nat);
+  wrap.appendChild(txt); wrap.appendChild(btn); wrap.appendChild(nat);
+  nat.classList.add('thdate-native');
+  const sync=()=>{ txt.value=nat.value?thDateField(nat.value):''; txt.disabled=nat.disabled; btn.disabled=nat.disabled; };
+  const commit=()=>{ const v=parseThaiDate(txt.value); if(v){ if(nat.value!==v){ nat.value=v; nat.dispatchEvent(new Event('change',{bubbles:true})); } } sync(); };
+  txt.addEventListener('blur', commit);
+  txt.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); commit(); } });
+  btn.addEventListener('click', ()=>{ if(nat.disabled) return; try{ nat.showPicker(); }catch(e){ try{ nat.focus(); nat.click(); }catch(_){ } } });
+  nat._thSync=sync; sync();
+}
+function paintBE(){
+  ['f-from','f-to','f-regdate'].forEach(id=>{ const n=$(id); if(n&&n._thSync) n._thSync(); });
+}
+
+/* ---------- สถานะหน้า ---------- */
+let ROWS=[];            /* แถวหน้าปัจจุบัน */
+let PAGENO=0, HASMORE=false, TOTALROWS=null;
+let QMODE='';           /* คิวรี่แบบไหนที่ใช้ได้จริง */
+let openKey=null;       /* แถวที่กางรายละเอียดอยู่ */
+const SEL=new Set();    /* rowKey ของแถวที่ติ๊กไว้ (เพื่อพิมพ์ใบนัด) — ล้างทุกครั้งที่ผลค้นหาเปลี่ยน */
+const MASTER={roomList:[],clinicList:[],doctorList:[],spcltyList:[],contactList:[],recorderList:[]};
+const IDENTITY={hospCode:'',hospName:'',user:'',doctorCode:'',appUser:''};
+const rowKey=r=>String(r.oapp_id||(r.hn+'|'+r.nextdate+'|'+r.nexttime));
+
+function toast(text,cls){
+  const t=$('toast'); t.textContent=text||''; t.className=cls||'';
+  if(text) setTimeout(()=>{ if(t.textContent===text){t.textContent='';t.className='';} }, cls==='err'?9000:4500);
+}
+
+/* ======================= BMS-Session ======================= */
+const BMS=(()=>{
+  const COOKIE='bms-session-id', DAYS=7, PARAM='bms-session-id';
+  const APP='BMS.Appointment.Center', TIMEOUT=20000;
+  let connected=false, cfg=null;
+  const ckGet=()=>{const m=document.cookie.match(new RegExp('(?:^|; )'+COOKIE+'=([^;]*)'));return m?decodeURIComponent(m[1]):null;};
+  const ckSet=id=>{const e=new Date(Date.now()+DAYS*864e5).toUTCString();const s=location.protocol==='https:'?'; Secure':'';document.cookie=COOKIE+'='+encodeURIComponent(id)+'; expires='+e+'; path=/'+s+'; SameSite=Lax';};
+  const ckDel=()=>{document.cookie=COOKIE+'=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';};
+  const urlGet=()=>{const p=new URLSearchParams(location.search).get(PARAM);return p&&p.trim()?p.trim():null;};
+  const urlClean=()=>{const u=new URL(location.href);if(u.searchParams.has(PARAM)){u.searchParams.delete(PARAM);history.replaceState({},'',u.toString());}};
+
+  async function validate(id){
+    try{
+      const u='https://hosxp.net/phapi/PasteJSON?Action=GET&code='+encodeURIComponent(id);
+      const c=new AbortController(), t=setTimeout(()=>c.abort(),TIMEOUT);
+      const res=await fetch(u,{method:'GET',headers:{'Accept':'application/json'},signal:c.signal,mode:'cors'});
+      clearTimeout(t);
+      if(!res.ok) return {MessageCode:0,Message:'HTTP '+res.status};   /* hosxp ตอบ error/ล่ม = ปัญหาเครือข่ายชั่วคราว (ไม่ใช่โค้ดเสีย) -> ไม่ลบ session */
+      return await res.json();
+    }catch(e){ return {MessageCode:0,Message:e.name==='AbortError'?'หมดเวลา':'เชื่อมต่อไม่ได้'}; }
+  }
+  function extract(data){
+    const r=data.result||{}, ui=r.user_info||{};
+    let url,key;
+    if(r.key_value&&typeof r.key_value==='object'){url=r.key_value['hosxp.api_url'];key=r.key_value['hosxp.api_auth_key'];}
+    if(!url)url=ui['hosxp.api_url']; if(!key)key=ui['hosxp.api_auth_key'];
+    if(!url)url=ui.bms_url; if(!key)key=ui.bms_session_code;
+    return {apiUrl:(url||'').replace(/\/$/,''),apiAuthKey:key||''};
+  }
+  /* เปิดผ่าน http -> ยิงผ่าน sql_proxy.php (POST ไม่ติดเพดานความยาว URL และไม่ติด CORS) */
+  const useProxy=()=> (location.protocol==='http:'||location.protocol==='https:');
+  /* ต่อคิวทุกคำสั่งให้วิ่งทีละตัว — ยิง /api/sql ทับกันเมื่อไหร่ tunnel ตอบ 409 Conflict
+     (เดิมกันไว้เฉพาะตอนค้นหา พอมีดึงรายการ lab ตอนคลิกแถวด้วยเลยต้องกันที่ต้นทาง) */
+  let CHAIN=Promise.resolve();
+  function sql(q){
+    const run=()=>sqlNow(q);
+    const p=CHAIN.then(run,run);
+    CHAIN=p.catch(()=>{});
+    return p;
+  }
+  async function sqlNow(q){
+    if(!connected||!cfg||!cfg.apiUrl) return {ok:false,error:'ยังไม่เชื่อมต่อ'};
+    const query=String(q).replace(/\s+/g,' ').trim();
+    const c=new AbortController(), t=setTimeout(()=>c.abort(),TIMEOUT);
+    try{
+      let res;
+      if(useProxy()){
+        res=await fetch(location.origin+'/sql_proxy.php',{method:'POST',
+          headers:{'Content-Type':'application/json'},signal:c.signal,
+          body:JSON.stringify({url:cfg.apiUrl,key:cfg.apiAuthKey,sql:query,app:APP})});
+      } else {
+        res=await fetch(cfg.apiUrl+'/api/sql?sql='+encodeURIComponent(query)+'&app='+encodeURIComponent(APP),
+          {method:'GET',headers:{'Authorization':'Bearer '+cfg.apiAuthKey},signal:c.signal,mode:'cors'});
+      }
+      clearTimeout(t);
+      let j=null; try{ j=await res.json(); }catch(e){}
+      if(j&&j.MessageCode===200) return {ok:true,data:j.data||[]};
+      let err=j?('['+j.MessageCode+'] '+(j.Message||'error')):('HTTP '+res.status);
+      if(!j&&res.status===501) err='เซิร์ฟเวอร์ไม่รองรับ POST — เปิดหน้านี้ผ่าน start.bat';
+      console.warn('BMS.sql ล้มเหลว:',err,'\n  query:',query);
+      return {ok:false,error:err};
+    }catch(e){
+      clearTimeout(t);
+      const err=e.name==='AbortError'?'หมดเวลา'
+        :(useProxy()?'เรียก proxy ไม่ได้ (เปิดผ่าน start.bat หรือยัง?)':'เรียก API ไม่ได้ (ติด CORS — เปิดผ่าน start.bat)');
+      console.warn('BMS.sql error:',err,'\n  query:',query);
+      return {ok:false,error:err};
+    }
+  }
+  function paint(state,text){
+    const mini=$('conn-mini');
+    if(mini){
+      mini.dataset.state=state;
+      mini.title=state==='ok'?'เชื่อมต่อ BMS Session แล้ว'
+                             :'ยังไม่ได้เชื่อมต่อ — เปิดหน้านี้ต่อจากหน้าทำนัด';
+    }
+    const mt=$('conn-mini-text'); if(mt) mt.textContent=state==='ok'?'เชื่อมต่อแล้ว':state==='busy'?'กำลังเชื่อมต่อ…':'ยังไม่เชื่อมต่อ';
+    $('conn-text').textContent=text;
+    /* แถบเตือนโผล่เฉพาะตอนเชื่อมไม่ได้จริง ๆ (ไม่โผล่ระหว่างกำลังเชื่อม จะได้ไม่กระพริบ) */
+    $('connwarn').hidden=(state!=='demo');
+  }
+  async function connect(id,opts){
+    opts=opts||{};
+    paint('busy','กำลังเชื่อมต่อ BMS Session…');
+    const data=await validate(id);
+    if(!data||data.MessageCode!==200){
+      if(opts.fromCookie && data && data.MessageCode!==0) ckDel();   /* เน็ตหลุด/timeout/hosxp ล่ม (MessageCode 0) = เก็บ cookie ไว้ ลองใหม่เมื่อเน็ตกลับ · ลบเฉพาะตอน hosxp ตอบว่าโค้ดเสียจริง */
+      $('c-user-wrap').hidden=true; $('c-hosp-wrap').hidden=true;
+      paint('demo','— '+((data&&data.Message)||'ไม่ทราบสาเหตุ'));
+      return false;
+    }
+    cfg=extract(data);
+    const uinfo=(data.result&&data.result.user_info)||{};
+    if(!cfg.apiUrl){ paint('demo','session ไม่มี API URL'); return false; }
+    connected=true; ckSet(id);
+    IDENTITY.hospName=String(uinfo.location||uinfo.hospital_name||'').trim();
+    IDENTITY.hospCode=String(uinfo.hospitalcode||uinfo.hoscode||uinfo.provider_id||uinfo.hospcode||uinfo.hcode||'').trim();
+    IDENTITY.user=String(uinfo.name||'').trim();
+    IDENTITY.doctorCode=String(uinfo.doctor_code||uinfo.doctorcode||'').trim();
+    /* ผู้บันทึกนัด (oapp.app_user) เก็บเป็น "ชื่อล็อกอิน" ของ HOSxP ไม่ใช่รหัสแพทย์/ชื่อ-สกุล
+       session ไม่ได้ส่ง loginname มาด้วย (มีแค่ name / doctor_code)
+       -> รับจาก session ถ้ามี · ไม่มีก็ใช้ค่าที่จำไว้บนเครื่องนี้
+          ยังว่างอยู่ค่อยไปถามตาราง officer ทีหลัง (resolveAppUser หลังโหลด master เสร็จ) */
+    IDENTITY.appUser=String(uinfo.loginname||uinfo.login_name||uinfo.username
+                           ||uinfo.user_name||uinfo.login||'').trim()||appUserSaved();
+    syncMineDefault();              /* เติมชื่อล็อกอินผู้บันทึกที่จำไว้ลงตัวกรอง */
+    syncPaperSel();                 /* รู้แล้วว่าใครล็อกอิน -> ใช้ค่ากระดาษของคนนั้น */
+    if(IDENTITY.hospName||IDENTITY.hospCode){
+      $('c-hosp').textContent=IDENTITY.hospName+(IDENTITY.hospCode?' ('+IDENTITY.hospCode+')':'');
+      $('c-hosp-wrap').hidden=false;
+    }
+    /* ชื่อผู้ล็อกอินขึ้นบนหัวจอ (เดิมอยู่ในแถบเตือนใต้หัวจอ) */
+    if(IDENTITY.user){ $('c-user').textContent=IDENTITY.user; $('c-user-wrap').hidden=false; }
+    paint('ok','');
+    /* ต้อง await — ปล่อยลอยแล้วค้นหาจะยิงทับกัน tunnel ตอบ 409 Conflict
+       (ข้างใน loadMaster ก็รันทีละคำสั่งด้วยเหตุผลเดียวกัน) */
+    await loadMaster();
+    return true;
+  }
+  /* หน้านี้ไม่มีช่องวาง session เอง — รับต่อมาจากหน้าทำนัดผ่านคุกกี้ (โดเมนเดียวกัน)
+     หรือส่งมาทาง ?bms-session-id=... ก็ได้ */
+  async function auto(){
+    const fromUrl=urlGet();
+    if(fromUrl){ urlClean(); if(await connect(fromUrl,{})) return; }
+    const fromCk=ckGet();
+    if(fromCk){ if(await connect(fromCk,{fromCookie:true})) return; }
+    paint('demo', fromCk?'— session หมดอายุหรือใช้ไม่ได้แล้ว':'— ไม่พบ session ของ BMS บนเครื่องนี้');
+  }
+  return {auto,connect,sql,get connected(){return connected;}};
+})();
+
+/* ======================= ตารางอ้างอิง (ห้อง / คลินิก / แพทย์) ======================= */
+/* คิวรี่ต้องเขียนรูปแบบนี้เป๊ะ ๆ — ชื่อไทยจาก /api/sql เพี้ยนถ้าเปลี่ยนรูปแบบ
+   (doctor ต้อง alias เป็น doc_name) */
+async function loadMaster(){
+  if(!BMS.connected) return;
+  const tasks=[
+    ['room',  "SELECT depcode, department FROM kskdepartment WHERE depcode_active='Y' ORDER BY depcode", r=>r.depcode, r=>r.department],
+    ['clinic',"SELECT clinic, name FROM clinic WHERE active_status='Y' ORDER BY clinic",                 r=>r.clinic,  r=>r.name],
+    ['spclty',"SELECT spclty, name FROM spclty WHERE active_status='Y' ORDER BY spclty",                 r=>r.spclty,  r=>r.name],
+    ['doctor',"SELECT code, name as doc_name FROM doctor WHERE active='Y' ORDER BY code",                r=>r.code,    r=>r.doc_name]
+  ];
+  for(const [key,q,getCode,getName] of tasks){
+    const res=await BMS.sql(q);
+    if(!res.ok||!Array.isArray(res.data)){ console.warn('โหลด master '+key+' ไม่ได้:',res.error); continue; }
+    const list=[];
+    for(const row of res.data){
+      const cd=getCode(row), nm=String(getName(row)||'').trim();
+      if(cd==null||String(cd).trim()===''||!nm) continue;
+      list.push({code:String(cd).trim(),name:nm});
+    }
+    MASTER[key+'List']=list;
+  }
+  await loadContacts();
+  fillSelects();
+  if(ROWS.length) renderTable();   /* ได้ชื่อจุดบริการ/คลินิก/แพทย์แล้ว -> วาดใหม่ให้เห็นชื่อแทนรหัส */
+}
+/* จุดแรกรับ (oapp.contact_point) — เก็บเป็น "ชื่อ" ไม่ใช่รหัส ต่างจากตัวกรองอื่น
+   ตัวเลือกหลักมาจาก oapp_contact · ไม่มีตารางนั้นค่อยไล่จากค่าที่เคยใช้จริงใน oapp */
+async function loadContacts(){
+  let list=[];
+  const r=await BMS.sql('SELECT name FROM oapp_contact ORDER BY name');
+  if(r.ok&&Array.isArray(r.data)) list=r.data.map(x=>String(x.name||'').trim()).filter(Boolean);
+  if(!list.length){
+    const r2=await BMS.sql("SELECT DISTINCT contact_point FROM oapp WHERE contact_point IS NOT NULL"
+      +" AND contact_point <> '' ORDER BY contact_point");
+    if(r2.ok&&Array.isArray(r2.data)) list=r2.data.map(x=>String(x.contact_point||'').trim()).filter(Boolean);
+    else console.warn('โหลดรายการจุดแรกรับไม่ได้:',r.error,'/',r2.error);
+  }
+  MASTER.contactList=[...new Set(list)];
+}
+/* รายชื่อล็อกอิน "ผู้บันทึกนัด" (oapp.app_user) ที่มีอยู่จริง — เป็นทางเดียวที่ผู้ใช้จะรู้ว่า
+   ล็อกอินตัวเองสะกดยังไง (session ไม่ส่ง loginname มา · opduser ถูก API บล็อก)
+   เรียงตามจำนวนใบนัดมาก->น้อย คนที่ทำนัดบ่อยจะอยู่ต้นรายการ
+   ดึงตอนคลิกที่ช่องครั้งแรกเท่านั้น — ต้องกวาดตาราง oapp ทั้งใบ ไม่ควรถ่วงตอนเปิดหน้า */
+let RECBUSY=false, RECDONE=false;
+async function loadRecorders(){
+  if(RECDONE||RECBUSY||!BMS.connected) return;
+  RECBUSY=true;
+  try{
+    const base="FROM oapp WHERE app_user IS NOT NULL AND app_user <> ''";
+    let r=await BMS.sql('SELECT app_user, COUNT(*) AS n '+base+' GROUP BY app_user ORDER BY n DESC LIMIT 500');
+    if(!r.ok) r=await BMS.sql('SELECT DISTINCT app_user '+base+' ORDER BY app_user LIMIT 500');
+    if(!r.ok||!Array.isArray(r.data)){ console.warn('โหลดรายชื่อผู้บันทึกนัดไม่ได้:',r.error); return; }
+    const seen=new Set(), list=[];
+    for(const x of r.data){
+      const v=String(x.app_user||'').trim();
+      if(!v||seen.has(v)) continue;
+      seen.add(v); list.push({v:v,n:Number(x.n)||0});
+    }
+    MASTER.recorderList=list;
+    RECDONE=true;
+    fillSelects();
+  } finally { RECBUSY=false; }
+}
+/* ตัดช่องว่างออกทั้งหมดก่อนเทียบชื่อคน — HOSxP เก็บเว้นวรรคระหว่างชื่อ-สกุลไม่คงที่ */
+const noSpace=s=>String(s==null?'':s).replace(/\s+/g,'');
+/* ชื่อ-สกุลผู้ล็อกอิน (จาก session) -> ชื่อล็อกอิน HOSxP ที่ oapp.app_user เก็บไว้
+   ตาราง officer เป็นตัวเชื่อม: officer_name (ชื่อ-สกุล) -> officer_login_name
+   (opduser ที่มีข้อมูลนี้เหมือนกันถูก API บล็อก)
+   ยิงครั้งเดียวพอ — ได้แล้วเก็บลงเครื่อง เปิดหน้าครั้งหน้าใช้ค่าที่จำไว้เลย ไม่ต้องถามซ้ำ */
+async function resolveAppUser(){
+  if(autoAppUser()) return true;                 /* รู้อยู่แล้ว หรือผู้ใช้เคยเลือกไว้เอง */
+  if(!BMS.connected) return false;
+  const nm=String(IDENTITY.user||'').trim();
+  if(!nm) return false;
+  /* ชื่อจาก session มักมีคำนำหน้าติดมา แต่ officer_name อาจเก็บคนละแบบ
+     -> ลองชื่อเต็มก่อน ไม่เจอค่อยตัดคำนำหน้าออกแล้วลองอีกรอบ */
+  const bare=nm.replace(/^(นาย|นาง|นางสาว|น\.ส\.|นพ\.|พญ\.|ดร\.|ทพ\.|ทพญ\.|ภก\.|ภญ\.)\s*/,'').trim();
+  for(const q of [...new Set([nm,bare].filter(Boolean))]){
+    /* ตัดช่องว่างทิ้งทั้งสองฝั่งก่อนเทียบ — officer_name ใน HOSxP มีเว้นวรรคไม่เท่ากัน
+       (เช่น "ขวัญจิตร  วรรณพิบูลย์" สองเคาะ ส่วน session ส่งมาเคาะเดียว) เทียบตรง ๆ จะไม่เจอ
+       REPLACE ใช้ได้ทั้ง MySQL/PostgreSQL · เผื่อ API ไม่ยอมให้ใช้ฟังก์ชันในเงื่อนไข
+       ค่อยถอยไปคิวรี่แบบเดิม */
+    let r=await BMS.sql("SELECT officer_login_name, officer_name FROM officer"
+      +" WHERE REPLACE(officer_name, ' ', '') LIKE '%"+sqlStr(noSpace(q))+"%'");
+    if(!r.ok) r=await BMS.sql("SELECT officer_login_name, officer_name FROM officer"
+      +" WHERE officer_name LIKE '%"+sqlStr(q)+"%'");
+    if(!r.ok){ console.warn('หาชื่อล็อกอินจากตาราง officer ไม่ได้:',r.error); return false; }
+    const rows=(r.data||[])
+      .map(x=>({login:String(x.officer_login_name||'').trim(),name:String(x.officer_name||'').trim()}))
+      .filter(x=>x.login);
+    if(!rows.length) continue;
+    /* ชื่อซ้ำกันได้ (เช่นชื่อสั้น ๆ) — เอาที่ชื่อตรงเป๊ะก่อน (เทียบแบบไม่สนช่องว่าง) ไม่มีค่อยเอาตัวแรก */
+    const hit=rows.find(x=>noSpace(x.name)===noSpace(nm))||rows[0];
+    if(rows.length>1) console.warn('officer ตรงกับ "'+q+'" '+rows.length+' คน — ใช้ '+hit.login);
+    /* ใส่ชื่อ-สกุลไว้เป็นค่าที่สองด้วย — ใบนัดที่ทำผ่านเครื่องมือนี้ "ก่อนหน้านี้" เก็บ app_user
+       เป็นชื่อ-สกุล (หน้าทำนัดเพิ่งเปลี่ยนมาส่งชื่อล็อกอิน) ไม่งั้นนัดเก่าของตัวเองจะหาย
+       ไม่ต้องการก็ลบออกจากช่องได้ ระบบจำค่าที่แก้ให้ */
+    appUserSave([...new Set([hit.login,nm].filter(Boolean))].join(', '));
+    syncMineDefault();
+    return true;
+  }
+  console.warn('ไม่พบชื่อล็อกอินใน officer ของ "'+nm+'" — ให้เลือกเองจากรายการ app_user');
+  return false;
+}
+/* ช่องกรองเป็น input + datalist (พิมพ์ค้นหาได้) แทน select — ตัวเลือกเป็น "รหัส · ชื่อ" */
+function fillSelects(){
+  const mk=(id,list)=>'<datalist id="'+id+'">'
+    +list.map(o=>'<option value="'+esc(o.code+' · '+o.name).replace(/"/g,'&quot;')+'"></option>').join('')
+    +'</datalist>';
+  /* จุดแรกรับไม่มีรหัส — ตัวเลือกเป็นชื่อล้วน */
+  const mkPlain=(id,list)=>'<datalist id="'+id+'">'
+    +(list||[]).map(v=>'<option value="'+esc(v).replace(/"/g,'&quot;')+'"></option>').join('')+'</datalist>';
+  /* ผู้บันทึกนัด — ค่าที่เลือกคือชื่อล็อกอินล้วน ส่วนจำนวนใบนัดโชว์เป็นคำอธิบายข้าง ๆ */
+  const mkCount=(id,list)=>'<datalist id="'+id+'">'
+    +(list||[]).map(o=>'<option value="'+esc(o.v).replace(/"/g,'&quot;')+'">'
+      +(o.n?esc(o.n+' ใบ'):'')+'</option>').join('')+'</datalist>';
+  $('datalists').innerHTML=mk('dl-room',MASTER.roomList)+mk('dl-clinic',MASTER.clinicList)
+                          +mk('dl-doctor',MASTER.doctorList)+mkPlain('dl-contact',MASTER.contactList)
+                          +mkCount('dl-appuser',MASTER.recorderList);
+}
+/* จุดแรกรับเก็บเป็นชื่อ ไม่มีรหัสให้แปลง — เทียบชื่อตรง ๆ ไม่สนตัวพิมพ์เล็กใหญ่
+   ไม่ตรงกับรายการไหนก็ส่งที่พิมพ์ไปกรองตรง ๆ (เหมือนช่องอื่น) */
+function pickContact(raw){
+  const s=String(raw||'').trim(); if(!s) return '';
+  return (MASTER.contactList||[]).find(x=>x.toLowerCase()===s.toLowerCase())||s;
+}
+/* ตัดคำนำหน้า/ช่องว่างออกก่อนเทียบชื่อ — ผู้ใช้พิมพ์ "อายุรกรรม" ควรเจอ "คลินิกอายุรกรรม" */
+function normName(s){ return String(s||'').toLowerCase().replace(/คลินิก|opd|แผนก|ห้องตรวจ|clinic|[\s.\-_]/g,''); }
+/* ข้อความที่พิมพ์ -> รหัสจริง (พิมพ์รหัสล้วน / ชื่อล้วน / เลือกจาก dropdown ก็ได้)
+   หาไม่เจอ = ส่งที่พิมพ์ไปตรง ๆ ให้ SQL กรอง จะได้ไม่เงียบ ๆ กลายเป็น "ทั้งหมด" */
+function pickCode(list,raw){
+  const s=String(raw||'').trim();
+  if(!s) return '';
+  const i=s.indexOf(' · ');
+  const code=(i>=0?s.slice(0,i):s).trim();
+  if(list.find(x=>String(x.code)===code)) return code;
+  const q=i>=0?s.slice(i+3).trim():s;
+  const rec=list.find(x=>normName(x.name)===normName(q))
+          ||list.find(x=>normName(x.name)===normName(s))
+          ||list.find(x=>normName(x.name).includes(normName(s)));
+  return rec?String(rec.code):code;
+}
+const nameOf=(list,code)=>{ const c=String(code==null?'':code).trim(); if(!c) return ''; const h=list.find(o=>o.code===c); return h?h.name:''; };
+/* แปลงรหัส -> ชื่อ ด้วยลำดับเดียวกันทุกที่: master (ที่ยัง active) -> ชื่อที่ join มา -> รหัสดิบ
+   ใช้ตัวเดียวกันทั้งในตารางและแผงรายละเอียด ไม่งั้นสองที่โชว์ไม่ตรงกัน */
+function resolveCode(code,list,joined){
+  const c=String(code==null?'':code).trim();
+  const j=String(joined==null?'':joined).trim();
+  if(!c) return {code:'',name:j,text:j};
+  const n=nameOf(list,c)||j;
+  return {code:c,name:n,text:n?(c+' · '+n):c};
+}
+
+/* ======================= คิวรี่ ======================= */
+/* ค่าที่เติมให้ช่อง "ผู้บันทึกนัด" อัตโนมัติ = ชื่อล็อกอินที่รู้จัก/เคยเลือกไว้ของคนที่ล็อกอินอยู่ */
+const autoAppUser=()=>String(IDENTITY.appUser||'').trim();
+/* app_user เก็บเป็นชื่อล็อกอินตรง ๆ (สตริงเดียว) -> จับคู่แบบตรงตัว ไม่แปลงรหัส/ชื่อให้
+   ใส่ได้หลายคนโดยคั่นด้วย , — เผื่อคนเดียวมีหลายล็อกอิน หรือนัดบางใบถูกเขียนด้วยชื่อผู้ใช้
+   (นัดที่ทำผ่านหน้าทำนัดของเครื่องมือนี้เขียน app_user เป็นชื่อ-สกุลผู้ใช้ ไม่ใช่ล็อกอิน) */
+function appUserMatch(v){
+  return [...new Set(String(v||'').split(',').map(s=>s.trim()).filter(Boolean))];
+}
+function filters(){
+  const f={
+    from:$('f-from').value, to:$('f-to').value||$('f-from').value,
+    room:pickCode(MASTER.roomList,$('f-room').value),
+    clinic:pickCode(MASTER.clinicList,$('f-clinic').value),
+    doctor:pickCode(MASTER.doctorList,$('f-doctor').value),
+    contact:pickContact($('f-contact').value),
+    hn:$('f-hn').value.trim(),
+    latest:$('f-latest').checked,
+    regOn:$('f-reg').checked?$('f-regdate').value:'',
+    appUser:$('f-mine').checked?$('f-appuser').value.trim():''
+  };
+  f.appUsers=appUserMatch(f.appUser);
+  if(f.to<f.from){ const t=f.to; f.to=f.from; f.from=t; }
+  return f;
+}
+const nextDay=s=>{ const d=fromISO(s); return d?iso(addD(d,1)):s; };
+function whereOf(f,a){
+  const p=a?a+'.':'';
+  const w=[];
+  if(f.regOn){
+    /* โหมด "บันทึกนัดในวันที่" — ไม่สนช่วงวันนัดเลย ดูว่าใบนัดถูกบันทึก/แก้ไขวันไหนอย่างเดียว
+       update_datetime เป็น datetime เลยต้องคร่อมเป็นช่วง (>= วันนั้น 00:00 และ < วันถัดไป 00:00)
+       ใช้ DATE(update_datetime)='...' ไม่ได้ผลดี เพราะ index ใช้ไม่ได้และบาง engine ก็ไม่รับ */
+    w.push(p+"update_datetime >= '"+sqlStr(f.regOn)+" 00:00:00'");
+    w.push(p+"update_datetime < '"+sqlStr(nextDay(f.regOn))+" 00:00:00'");
+  } else {
+    w.push(p+"nextdate BETWEEN '"+sqlStr(f.from)+"' AND '"+sqlStr(f.to)+"'");
+  }
+  if(f.hn)     w.push(p+"hn = '"+sqlStr(f.hn)+"'");
+  if(f.room)   w.push(p+"depcode = '"+sqlStr(f.room)+"'");
+  if(f.clinic) w.push(p+"clinic = '"+sqlStr(f.clinic)+"'");
+  if(f.doctor) w.push(p+"doctor = '"+sqlStr(f.doctor)+"'");
+  if(f.contact)w.push(p+"contact_point = '"+sqlStr(f.contact)+"'");
+  /* ผู้บันทึกนัด — จับคู่ได้หลายค่า (ดู appUserMatch) เลยต้องคร่อมวงเล็บ ไม่งั้น OR
+     จะกินเงื่อนไขอื่นที่ต่อด้วย AND ไปด้วย */
+  if(f.appUsers&&f.appUsers.length){
+    w.push('('+f.appUsers.map(v=>p+"app_user = '"+sqlStr(v)+"'").join(' OR ')+')');
+  }
+  return w.join(' AND ');
+}
+/* ต้องปิดท้ายด้วย oapp_id เสมอ ไม่งั้นแถวที่วัน/เวลาเท่ากันเป๊ะอาจสลับที่กันระหว่างหน้า
+   ทำให้บางแถวโผล่ซ้ำ บางแถวหายไปตอนเปลี่ยนหน้า */
+function orderOf(f,a){
+  const p=a?a+'.':'';
+  /* โหมด "บันทึกนัดในวันที่" — เรียงตามเวลาที่บันทึกล่าสุดขึ้นก่อน (ใบที่เพิ่งทำนัดอยู่บนสุด)
+     ทับการติ๊ก "เรียงตามวันที่มา" เพราะโหมดนี้ไม่ได้ดูวันนัดเป็นหลักอยู่แล้ว */
+  if(f.regOn) return p+'update_datetime DESC, '+p+'oapp_id DESC';
+  return f.latest ? (p+'vstdate DESC, '+p+'nextdate DESC, '+p+'nexttime DESC, '+p+'oapp_id DESC')
+                  : (p+'nextdate, '+p+'nexttime, '+p+'hn, '+p+'oapp_id');
+}
+/* +1 = แถวสำรวจว่ามีหน้าถัดไปไหม (ตัดทิ้งก่อนแสดงผล) */
+const pageTail=()=>' LIMIT '+(PAGE_SIZE+1)+(PAGENO>0?(' OFFSET '+(PAGENO*PAGE_SIZE)):'');
+
+const OAPP_COLS='o.oapp_id, o.hn, o.vn, o.vstdate, o.nextdate, o.nexttime, o.nexttime_end, o.clinic,'
+               +' o.depcode, o.spclty, o.doctor, o.app_user, o.app_cause, o.contact_point,'
+               +' o.note, o.oapp_status_id';
+function buildQueries(f){
+  const w=whereOf(f,'o'), ord=orderOf(f,'o'), tail=pageTail();
+  /* join ชื่อจากตารางอ้างอิงมาด้วย — master โหลดเฉพาะรายการที่ยัง active
+     นัดเก่าที่ชี้ไปห้อง/คลินิกที่ปิดใช้งานแล้วเลยแปลงรหัสเป็นชื่อไม่ได้ ต้องพึ่ง join
+     (ตารางอ้างอิงพวกนี้ดึงผ่าน join แล้วภาษาไทยไม่เพี้ยน ต่างจาก patient/doctor) */
+  const JOINS=' FROM oapp o'
+    +' LEFT OUTER JOIN kskdepartment k ON k.depcode = o.depcode'
+    +' LEFT OUTER JOIN clinic c ON c.clinic = o.clinic'
+    +' LEFT OUTER JOIN spclty s ON s.spclty = o.spclty'
+    +' LEFT OUTER JOIN opd_qs_slot qs ON qs.opd_qs_slot_id = o.opd_qs_slot_id'
+    +' WHERE '+w+' ORDER BY '+ord+tail;
+  /* ชื่อคนไข้ไม่ได้ต่อในคิวรี่นี้ — ดึงแยกด้วย loadNames() เสมอ (ดูหมายเหตุที่ loadNames) */
+  return [
+    /* 1) เต็มรูปแบบ */
+    {tag:'full', sql:'SELECT '+OAPP_COLS+','
+      +' k.department, c.name AS clinic_name, s.name AS spclty_name, qs.queue_slot_number,'
+      +' o.lab_list_text::VARCHAR(500) AS lab_list_text,'
+      +' o.xray_list_text::VARCHAR(500) AS xray_list_text'+JOINS},
+    /* 2) ไม่มี cast — เผื่อ engine ไม่รับ :: หรือ VARCHAR(n) */
+    {tag:'nocast', sql:'SELECT '+OAPP_COLS+','
+      +' k.department, c.name AS clinic_name, s.name AS spclty_name, qs.queue_slot_number,'
+      +' o.lab_list_text, o.xray_list_text'+JOINS},
+    /* 3) สำรองสุดท้าย: oapp ล้วน ๆ ไม่ join เลย -> ชื่อ/เบอร์ค่อยดึงแยกทีหลัง
+          (ห้อง/คลินิก/แพทย์ ใช้ชื่อจาก master ที่โหลดไว้แล้ว) */
+    {tag:'plain', sql:'SELECT '+OAPP_COLS+', o.lab_list_text, o.xray_list_text'
+      +' FROM oapp o WHERE '+w+' ORDER BY '+ord+tail}
+  ];
+}
+
+/* แบ่งชุดยิงทีละก้อน — /api/sql มีเพดานความยาว URL (~2048 ตัว) ยาวกว่านั้น tunnel ตอบ 404 */
+function chunk(arr,n){ const o=[]; for(let i=0;i<arr.length;i+=n) o.push(arr.slice(i,i+n)); return o; }
+const inList=v=>v.map(x=>"'"+sqlStr(x)+"'").join(',');
+/* ชื่อคนไข้: ให้ SQL ต่อชื่อมาเป็นคอลัมน์เดียว แล้วดึงจากตาราง patient ล้วน ๆ (ไม่ join อะไรเลย)
+   — คิวรี่บรรทัดนี้ต้องเหมือนหน้าทะเบียนนัด (appointment-register.html) ทุกตัวอักษร
+     ถ้าไปต่อชื่อในคิวรี่หลักที่มี join หรือแอบเติมคอลัมน์อื่นเข้ามา ภาษาไทยจาก /api/sql จะเพี้ยน
+     — อยากได้ข้อมูลอื่นจาก patient ให้แยกไปอีกคิวรี่ ห้ามเอามาใส่ตรงนี้ */
+async function loadNames(){
+  const hns=[...new Set(ROWS.map(r=>r.hn).filter(Boolean))];
+  const map={};
+  for(const part of chunk(hns,50)){
+    const r=await BMS.sql("SELECT hn, pname || fname || ' ' || lname as pt_name FROM patient WHERE hn IN ("+inList(part)+")");
+    if(!r.ok){ console.warn('ดึงชื่อคนไข้ไม่ได้:',r.error); break; }
+    for(const p of r.data){
+      const nm=String(p.pt_name||'').replace(/\s+/g,' ').trim();
+      if(nm) map[String(p.hn||'').trim()]=nm;
+    }
+  }
+  for(const r of ROWS) r.ptname=map[String(r.hn||'').trim()]||'';
+}
+/* ชื่อแพทย์ที่ยังแปลงไม่ได้ — master โหลดเฉพาะ active='Y' นัดเก่ามักชี้ไปแพทย์ที่ลาออกแล้ว
+   ชื่อแพทย์เพี้ยนถ้าดึงผ่าน join เลยต้องยิงแยกด้วยรูปแบบเดียวกับตอนโหลด master
+   เติมเข้า MASTER.doctorList เลย (ไม่เรียก fillSelects ซ้ำ dropdown จะได้มีแต่แพทย์ที่ยังทำงานอยู่) */
+async function loadDoctorNames(){
+  const need=[...new Set(ROWS.map(r=>String(r.doctor||'').trim())
+    .filter(c=>c&&!nameOf(MASTER.doctorList,c)))];
+  if(!need.length) return;
+  for(const part of chunk(need,50)){
+    const r=await BMS.sql('SELECT code, name as doc_name FROM doctor WHERE code IN ('+inList(part)+')');
+    if(!r.ok){ console.warn('ดึงชื่อแพทย์เพิ่มไม่ได้:',r.error); break; }
+    for(const d of r.data){
+      const c=String(d.code||'').trim(), n=String(d.doc_name||'').trim();
+      if(c&&n&&!MASTER.doctorList.some(x=>x.code===c)) MASTER.doctorList.push({code:c,name:n});
+    }
+  }
+}
+
+/* กันค้นหาซ้อนกัน (กดปุ่มรัว ๆ หรือเปลี่ยน dropdown ระหว่างที่ยังดึงข้อมูลอยู่)
+   — ยิง /api/sql ทับกันเมื่อไหร่ tunnel ตอบ 409 Conflict */
+let BUSY=false;
+async function search(opts){
+  if(BUSY) return;
+  BUSY=true;
+  try{ return await doSearch(opts); }
+  finally{ BUSY=false; $('f-go').disabled=false; }
+}
+async function doSearch(opts){
+  if(!BMS.connected){ toast('ยังไม่ได้เชื่อมต่อ BMS Session','err'); return; }
+  const f=filters();
+  if($('f-reg').checked){
+    if(!f.regOn){ toast('เลือกวันที่บันทึกนัดก่อน','err'); return; }
+  } else if(!f.from){ toast('เลือกวันที่นัดก่อน','err'); return; }
+  if($('f-mine').checked&&!f.appUsers.length){
+    toast('เลือกชื่อล็อกอินผู้บันทึกก่อน (คลิกที่ช่อง “ผู้บันทึกนัด” เพื่อดูรายการ)','err'); return;
+  }
+  if(!(opts&&opts.keepPage)) PAGENO=0;
+  $('f-go').disabled=true; toast('กำลังดึงรายการนัดหมาย…');
+  ROWS=[]; openKey=null; SEL.clear(); QMODE=''; HASMORE=false; TOTALROWS=null; renderTable();
+  $('sum').innerHTML='<span class="m">กำลังดึงข้อมูล…</span>';
+
+  let r=null;
+  for(const q of buildQueries(f)){
+    r=await BMS.sql(q.sql);
+    if(r.ok){ QMODE=q.tag; break; }
+    console.warn('[นัดหมาย] คิวรี่แบบ '+q.tag+' ไม่ผ่าน:',r.error,'\n  '+q.sql);
+  }
+  /* ปุ่มค้นหาปลดล็อกที่ finally ของ search() — ให้ค้างไว้จนดึงชื่อคนไข้เสร็จจริง ๆ */
+  if(!r||!r.ok){
+    $('sum').innerHTML='<span class="m bad">ดึงข้อมูลไม่ได้</span>';
+    toast('ดึงข้อมูลไม่ได้: '+((r&&r.error)||'ไม่ทราบสาเหตุ'),'err');
+    return;
+  }
+  /* ได้เกินหน้าละ PAGE_SIZE = ยังมีหน้าถัดไป -> ตัดแถวสำรวจทิ้งก่อนแสดง */
+  ROWS=r.data.slice(0,PAGE_SIZE);
+  SEL.clear();                       /* ผลค้นหา/หน้าเปลี่ยน -> เริ่มเลือกใหม่ */
+  HASMORE=r.data.length>PAGE_SIZE;
+
+  if(!ROWS.length){
+    if(PAGENO>0){        /* ข้อมูลเปลี่ยนไประหว่างเปิดหน้าอยู่ -> ถอยกลับหน้าก่อน */
+      PAGENO--; toast('ไม่มีข้อมูลในหน้านั้นแล้ว — กลับมาหน้า '+(PAGENO+1),'err');
+      return doSearch({keepPage:true});   /* เรียกตัวในตรง ๆ ไม่งั้นติดกัน BUSY ของตัวเอง */
+    }
+    TOTALROWS=0; renderTable(); renderSum(f);
+    return;
+  }
+  /* วาดตารางก่อน จะได้เห็นรายการเร็ว แล้วค่อยเติมชื่อคนไข้ตามเข้ามา */
+  renderTable();
+  renderSum(f);
+  $('sum').innerHTML='<span class="m">พบ <b>'+ROWS.length+'</b> รายการ · กำลังดึงชื่อผู้รับบริการ…</span>';
+  await loadNames();
+  await loadDoctorNames();
+  if(QMODE==='plain') toast('ใช้คิวรี่สำรอง (ไม่ join) — ชื่อห้องใช้จากตารางอ้างอิงแทน','err');
+  renderTable();
+  renderSum(f);
+
+  /* นับยอดรวมทีหลัง จะได้ไม่หน่วงตาราง — นับบน oapp ล้วน ตัวกรองอยู่บน oapp ทั้งหมด */
+  const cr=await BMS.sql('SELECT COUNT(*) AS n FROM oapp o WHERE '+whereOf(f,'o'));
+  if(cr.ok&&cr.data&&cr.data.length){
+    const row=cr.data[0], k=Object.keys(row).find(x=>/^n$|count/i.test(x));
+    const n=Number(k!==undefined?row[k]:Object.values(row)[0]);
+    if(isFinite(n)){ TOTALROWS=n; renderSum(f); }
+  } else console.warn('[นัดหมาย] count ไม่ผ่าน:',cr.error);
+}
+
+/* ======================= วาดผล ======================= */
+function renderSum(f){
+  f=f||filters();
+  /* โหมดบันทึกนัด: ไม่ได้กรองด้วยช่วงวันนัด เลยต้องไม่โชว์ช่วงวันนัด ไม่งั้นเข้าใจผิดว่ากรองอยู่ */
+  const parts=f.regOn
+    ? ['บันทึกนัดวันที่ <b>'+esc(thDate(f.regOn))+'</b> <span class="m">(ทุกวันนัด)</span>']
+    : ['ช่วงนัด <b>'+esc(thDate(f.from))+'</b> – <b>'+esc(thDate(f.to))+'</b>'];
+  if(f.room)   parts.push('จุดบริการ <b>'+esc(f.room+(nameOf(MASTER.roomList,f.room)?' · '+nameOf(MASTER.roomList,f.room):''))+'</b>');
+  if(f.contact)parts.push('จุดแรกรับ <b>'+esc(f.contact)+'</b>');
+  if(f.clinic) parts.push('คลินิก <b>'+esc(f.clinic+(nameOf(MASTER.clinicList,f.clinic)?' · '+nameOf(MASTER.clinicList,f.clinic):''))+'</b>');
+  if(f.doctor) parts.push('แพทย์ <b>'+esc(f.doctor+(nameOf(MASTER.doctorList,f.doctor)?' · '+nameOf(MASTER.doctorList,f.doctor):''))+'</b>');
+  if(f.hn)     parts.push('HN <b>'+esc(f.hn)+'</b>');
+  if(f.appUser)parts.push('ผู้บันทึก <b>'+esc((f.appUsers||[f.appUser]).join(' / '))+'</b>');
+  const shown=ROWS.length;
+  const total=(TOTALROWS!=null)?TOTALROWS:null;
+  let head;
+  if(!shown) head='<span class="m">ไม่พบรายการนัด</span>';
+  else if(total!=null&&total>shown) head='แสดง <b>'+shown+'</b> จาก <b>'+total+'</b> รายการ';
+  else head='พบ <b>'+shown+'</b> รายการ';
+  $('sum').innerHTML=head+' &nbsp;·&nbsp; '+parts.join(' &nbsp;·&nbsp; ');
+
+  const many=(TOTALROWS!=null&&TOTALROWS>PAGE_SIZE)||HASMORE||PAGENO>0;
+  $('pager').hidden=!many;
+  if(many){
+    $('pg-info').textContent='หน้า '+(PAGENO+1)+(TOTALROWS!=null?(' / '+Math.max(1,Math.ceil(TOTALROWS/PAGE_SIZE))):'');
+    $('pg-prev').disabled=(PAGENO<=0);
+    $('pg-next').disabled=!HASMORE;
+  }
+}
+const cell=(v,cls)=>'<td'+(cls?' class="'+cls+'"':'')+'>'+(v===''||v==null?'<span class="dash">–</span>':v)+'</td>';
+function trunc(s,n){
+  const t=String(s==null?'':s).replace(/\s+/g,' ').trim();
+  if(!t) return '';
+  return t.length>n ? '<span title="'+esc(t)+'">'+esc(t.slice(0,n))+'…</span>' : esc(t);
+}
+function renderTable(){
+  const tb=$('tb');
+  if(!ROWS.length){
+    $('reg').hidden=true; $('empty').hidden=false; tb.innerHTML='';
+    $('empty').innerHTML=BMS.connected
+      ? '<div class="big">&#9646;</div><b>ไม่พบรายการนัด</b><p>ลองขยายช่วงวันที่ หรือล้างตัวกรองบางตัว</p>'
+      : '<div class="big">&#9646;</div><b>ยังไม่ได้เชื่อมต่อ</b>'
+        +'<p>หน้านี้ใช้ session ต่อจากหน้าทำนัด — เปิด'
+        +' <a href="appointment-autofill-v3.html">หน้าทำนัด</a> เชื่อมต่อก่อน แล้วกดปุ่ม “ทะเบียนนัด”</p>';
+    return;
+  }
+  $('empty').hidden=true; $('reg').hidden=false;
+  const base=PAGENO*PAGE_SIZE;
+  const out=[];
+  ROWS.forEach((r,i)=>{
+    const k=rowKey(r), on=(k===openKey);
+    /* ใช้ resolveCode ตัวเดียวกับแผงรายละเอียด — ในตารางโชว์แค่ชื่อ (รหัสไปอยู่ใน tooltip) */
+    const rm=resolveCode(r.depcode,MASTER.roomList,r.department);
+    const room=rm.name?'<span title="'+esc(rm.text)+'">'+esc(rm.name)+'</span>':esc(rm.code);
+    /* แพทย์ผู้นัด = oapp.doctor (เก็บเป็นรหัส) */
+    const dc=resolveCode(r.doctor,MASTER.doctorList,'');
+    const who=dc.name?'<span title="'+esc(dc.text)+'">'+esc(dc.name)+'</span>':esc(dc.code);
+    const slot=(r.queue_slot_number==null||String(r.queue_slot_number).trim()==='')?''
+              :'<span class="pill">'+esc(String(r.queue_slot_number).trim())+'</span>';
+    const picked=SEL.has(k);
+    out.push('<tr class="r'+(on?' on':'')+(picked?' picked':'')+'" data-k="'+esc(k)+'">'
+      +'<td class="sel"><input type="checkbox" class="rowchk"'+(picked?' checked':'')+'></td>'
+      +cell(base+i+1,'num')
+      +cell(esc(thDate(r.vstdate)),'mono')
+      +cell(esc(thDate(r.nextdate)),'mono')
+      +cell(esc(hhmm(r.nexttime)),'mono')
+      +cell(esc(hhmm(r.nexttime_end)),'mono')
+      +cell(esc(String(r.hn||'').trim()),'mono')
+      +cell(esc(String(r.ptname||'').replace(/\s+/g,' ').trim()),'name')
+      +cell(room)
+      +cell(esc(String(r.contact_point||'').trim()))
+      +cell(who)
+      +cell(trunc(r.lab_list_text,28),'free')
+      +cell(slot,'num')
+      +cell(trunc(r.xray_list_text,22),'free')
+      +cell(trunc(r.note,34),'free')
+      +'</tr>');
+    if(on) out.push('<tr class="det"><td colspan="15">'+detailHtml(r)+'</td></tr>');
+  });
+  tb.innerHTML=out.join('');
+  syncSel();
+}
+/* ปรับปุ่มพิมพ์ + ช่องติ๊กหัวตาราง ให้ตรงกับสิ่งที่เลือกอยู่ */
+const PRINTER_ICON='&#128424; พิมพ์ใบนัด';
+function syncSel(){
+  const n=SEL.size, btn=$('btn-print');
+  if(btn){ btn.disabled=!n; btn.innerHTML=PRINTER_ICON+(n?(' ('+n+')'):''); }
+  const all=$('chk-all');
+  if(all){
+    const keys=ROWS.map(rowKey), on=keys.filter(k=>SEL.has(k)).length;
+    all.checked=!!keys.length&&on===keys.length;
+    all.indeterminate=on>0&&on<keys.length;   /* เลือกบางส่วน */
+  }
+}
+/* รายการ lab ของนัดใบนี้ — รหัส+ชื่อจริงจาก lab_app_* (ชุดเดียวกับที่หน้า BMS-OAPP ใช้)
+   ดึงตอนคลิกแถวเท่านั้น แล้ว cache ไว้ที่ตัวแถว จะได้ไม่ยิงซ้ำตอนกางปิดกางเปิด */
+async function loadLabOrders(r){
+  const id=r.oapp_id;
+  if(id==null||String(id).trim()===''){ r._labs=[]; return; }
+  const n=Number(id);
+  const idc=(Number.isInteger(n)&&String(n)===String(id).trim())?('lh.oapp_id='+n):("lh.oapp_id='"+sqlStr(id)+"'");
+  const res=await BMS.sql('SELECT lo.lab_code, lo.lab_name FROM lab_app_head lh'
+    +' LEFT JOIN lab_app_order_service lo ON lo.lab_app_order_number = lh.lab_app_order_number'
+    +' WHERE '+idc+' ORDER BY lo.lab_code');
+  if(!res.ok){ console.warn('ดึงรายการ lab ไม่ได้:',res.error); r._labs=null; r._labErr=res.error; return; }
+  r._labs=res.data.map(x=>({code:String(x.lab_code||'').trim(),name:String(x.lab_name||'').trim()}))
+                  .filter(x=>x.code||x.name);
+}
+/* ชิปรายการตรวจ — ไม่มีรหัส (มาจาก lab_list_text) ก็โชว์แต่ชื่อ */
+const chip=(code,name)=>'<span class="chip">'+(code?'<b>'+esc(code)+'</b> ':'')+esc(name||code)+'</span>';
+const splitText=s=>String(s||'').split(/\s*,\s*/).map(x=>x.trim()).filter(Boolean);
+
+/* โน้ตนัดมักมีช่องว่าง/ย่อหน้านำหน้าแต่ละบรรทัด ตัดออกให้ชิดซ้ายแต่ยังคงการขึ้นบรรทัดไว้ */
+function tidyNote(s){
+  return String(s==null?'':s).replace(/\r/g,'').split('\n').map(x=>x.trim()).join('\n').trim();
+}
+function detailHtml(r){
+  const row=(k,v,cls)=>'<div class="frow"><span class="fk">'+esc(k)+'</span>'
+    +'<span class="fv'+(cls?' '+cls:'')+'">'+(v?v:'<span class="dash">–</span>')+'</span></div>';
+  const t1=hhmm(r.nexttime), t2=hhmm(r.nexttime_end);
+  const doc=resolveCode(r.doctor,MASTER.doctorList,'');
+  const dep=resolveCode(r.spclty,MASTER.spcltyList,r.spclty_name);
+  const cli=resolveCode(r.clinic,MASTER.clinicList,r.clinic_name);
+  const room=resolveCode(r.depcode,MASTER.roomList,r.department);
+
+  let form='<div class="form">'
+    +row('วันที่นัด',  esc(thDateDow(r.nextdate)))
+    +row('D / W / M',  esc(dwm(r.vstdate,r.nextdate)),'mono')
+    +row('ช่วงเวลา',   t1?esc(t1+(t2?' – '+t2:'')):'','mono')
+    +row('แพทย์',      esc(doc.text))
+    +row('แผนก',       esc(dep.text))
+    +row('คลินิก',     esc(cli.text))
+    +row('จุดบริการ',  esc(room.text))
+    +row('จุดแรกรับ',  esc(String(r.contact_point||'').trim()))
+    +row('เหตุที่นัด', esc(String(r.app_cause||'').trim()))
+    +row('ประเภท',     esc(apptType(r.app_cause)))
+    +row('หมายเหตุ',   esc(tidyNote(r.note)),'wrap')
+    +row('ผู้บันทึก',  esc(String(r.app_user||'').trim()))
+    +row('HN / VN',    esc(String(r.hn||'').trim()+(r.vn?' / '+r.vn:'')),'mono')
+    +'</div>';
+
+  /* lab: ถ้ายังดึงไม่เสร็จ/ดึงไม่ได้ ใช้ lab_list_text ที่ติดมากับแถวไปพลางก่อน */
+  const fromText=splitText(r.lab_list_text);
+  let labHtml,labN;
+  if(r._labs===undefined){
+    labN=fromText.length; labHtml=fromText.length
+      ? '<div class="chips">'+fromText.map(x=>chip('',x)).join('')+'</div><p class="none">กำลังดึงรหัสรายการตรวจ…</p>'
+      : '<p class="none">กำลังดึงรายการตรวจ…</p>';
+  } else if(r._labs===null){
+    labN=fromText.length;
+    labHtml=(fromText.length?'<div class="chips">'+fromText.map(x=>chip('',x)).join('')+'</div>':'')
+      +'<p class="none bad">ดึงรายการตรวจจาก lab_app_* ไม่ได้'+(r._labErr?' ('+esc(r._labErr)+')':'')+'</p>';
+  } else if(r._labs.length){
+    labN=r._labs.length;
+    labHtml='<div class="chips">'+r._labs.map(l=>chip(l.code,l.name)).join('')+'</div>';
+  } else if(fromText.length){
+    labN=fromText.length;
+    labHtml='<div class="chips">'+fromText.map(x=>chip('',x)).join('')+'</div>'
+      +'<p class="none">ไม่พบใบสั่ง lab ที่ผูกกับนัดใบนี้ — แสดงจาก oapp.lab_list_text</p>';
+  } else {
+    labN=0;
+    labHtml='<p class="none">ไม่มีใบสั่ง lab ผูกกับนัดใบนี้ และ oapp.lab_list_text ว่าง'
+      +(tidyNote(r.note)?' — รายการที่หมอสั่งอาจอยู่ในหมายเหตุ':'')+'</p>';
+  }
+
+  const xr=splitText(r.xray_list_text);
+  const xrHtml=xr.length?'<div class="chips">'+xr.map(x=>chip('',x)).join('')+'</div>'
+                        :'<p class="none">ไม่มีรายการ</p>';
+
+  /* จอกว้าง: ฟอร์มซ้าย / รายการตรวจขวา — td นี้กว้างเต็มตาราง ถ้าวางซ้อนกันจะเหลือที่ว่างมาก */
+  return '<div class="detwrap"><div class="detcol">'+form+'</div><div class="detcol">'
+    +'<div class="sect lab"><h4>รายการตรวจ (LAB) <span class="cnt">'+labN+'</span></h4>'
+      +'<div class="body">'+labHtml+'</div></div>'
+    +'<div class="sect xray"><h4>X-RAY / ตรวจพิเศษ <span class="cnt">'+xr.length+'</span></h4>'
+      +'<div class="body">'+xrHtml+'</div></div>'
+    +'</div></div>';
+}
+$('tb').addEventListener('click',async e=>{
+  const tr=e.target.closest('tr.r'); if(!tr) return;
+  const k=tr.dataset.k;
+  /* คลิกในคอลัมน์ติ๊กเลือก -> แค่เลือก/ไม่เลือก ไม่ต้องกางแผงรายละเอียด */
+  if(e.target.closest('td.sel')){
+    if(SEL.has(k)) SEL.delete(k); else SEL.add(k);
+    tr.classList.toggle('picked',SEL.has(k));
+    const cb=tr.querySelector('.rowchk'); if(cb) cb.checked=SEL.has(k);
+    syncSel();
+    return;
+  }
+  openKey=(openKey===k)?null:k;
+  renderTable();                       /* กางทันที ไม่ต้องรอ query */
+  if(openKey===null) return;
+  const r=ROWS.find(x=>rowKey(x)===k);
+  if(!r||r._labs!==undefined) return;  /* ดึงมาแล้ว (หรือดึงไม่ได้) -> ไม่ยิงซ้ำ */
+  await loadLabOrders(r);
+  if(openKey===k) renderTable();       /* ผู้ใช้อาจปิด/เปิดแถวอื่นไปแล้วระหว่างรอ */
+});
+
+/* ======================= พิมพ์ใบนัดที่เลือก ======================= */
+$('chk-all').onclick=e=>{
+  const on=e.target.checked;
+  SEL.clear();
+  if(on) for(const r of ROWS) SEL.add(rowKey(r));
+  renderTable();
+};
+/* อายุ/เพศ ไม่ได้ดึงมาตอนค้นหา (ตารางไม่ได้ใช้) -> ดึงเฉพาะคนที่เลือก ตอนกดพิมพ์
+   ต้องแยกคิวรี่ออกจากคิวรี่ชื่อคนไข้เสมอ ดูหมายเหตุที่ loadNames() — ผสมแล้วภาษาไทยเพี้ยน
+   (คิวรี่นี้ไม่มีคอลัมน์ภาษาไทย จึงปลอดภัย) */
+async function loadAges(hns){
+  const out={};
+  if(!hns.length||!BMS.connected) return out;
+  for(const part of chunk(hns,50)){
+    const r=await BMS.sql('SELECT hn, sex, birthday FROM patient WHERE hn IN ('+inList(part)+')');
+    if(!r.ok){ console.warn('ดึงอายุ/เพศไม่ได้:',r.error); break; }
+    for(const p of r.data||[]) out[String(p.hn||'').trim()]={sex:p.sex,birthday:p.birthday};
+  }
+  return out;
+}
+/* "54 ปี 7 เดือน" แบบเดียวกับหน้าทำนัด */
+function ageTextFrom(b){
+  const m=String(b||'').match(/(\d{4})-(\d{2})-(\d{2})/); if(!m) return '';
+  const bd=new Date(+m[1],+m[2]-1,+m[3]); if(isNaN(bd)||+m[1]<1900) return '';
+  const t=new Date(); t.setHours(0,0,0,0);
+  let y=t.getFullYear()-bd.getFullYear(), mo=t.getMonth()-bd.getMonth();
+  if(t.getDate()<bd.getDate()) mo--;
+  if(mo<0){ y--; mo+=12; }
+  if(y<0||y>=130) return '';
+  return y+' ปี'+(mo?' '+mo+' เดือน':'');
+}
+const sexText=v=>(v==1||v==='1')?'ชาย':((v==2||v==='2')?'หญิง':'');
+/* แถวในทะเบียนนัด -> ข้อมูลใบนัดที่ slip.js ใช้ */
+function slipDataOfRow(r,extra){
+  const px=extra[String(r.hn||'').trim()]||{};
+  const rm=resolveCode(r.depcode,MASTER.roomList,r.department);
+  const cl=resolveCode(r.clinic,MASTER.clinicList,r.clinic_name);
+  const dc=resolveCode(r.doctor,MASTER.doctorList,'');
+  return {
+    hosp:IDENTITY.hospName||'',
+    hn:String(r.hn||'').trim(),
+    name:String(r.ptname||'').replace(/\s+/g,' ').trim(),
+    sex:sexText(px.sex),
+    ageText:ageTextFrom(px.birthday),
+    date:String(r.nextdate||'').slice(0,10),
+    time:r.nexttime||'', timeEnd:r.nexttime_end||'',   /* ช่วงเวลาที่นัด (จาก oapp) */
+    doctor:dc.name||dc.code||'',
+    clinic:{code:cl.code,name:cl.name},
+    room:{code:rm.code,name:rm.name},
+    cause:String(r.app_cause||'').trim(),
+    note:String(r.note||'').trim(),
+    labs:[String(r.lab_list_text||''),String(r.xray_list_text||'')].join(', '),
+    /* oapp ไม่ได้เก็บ "ห้องที่ทำนัด" ไว้ ใบที่พิมพ์ย้อนหลังจึงระบุไม่ได้ — ปล่อยว่างดีกว่าเดา
+       ผู้ออกบัตร = คนที่บันทึกนัดไว้ (app_user) · พิมพ์โดย = คนที่กดพิมพ์ตอนนี้ */
+    fromRoom:'',
+    issuer:String(r.app_user||'').trim(),
+    printedBy:IDENTITY.user||''
+  };
+}
+$('btn-print').onclick=async ()=>{
+  if(!window.Slip){ toast('โหลด slip.js ไม่ได้ — ตรวจว่าไฟล์ slip.js อยู่โฟลเดอร์เดียวกับหน้านี้','err'); return; }
+  const picked=ROWS.filter(r=>SEL.has(rowKey(r)));
+  if(!picked.length){ toast('ยังไม่ได้เลือกรายการ — ติ๊กช่องหน้าแถวที่ต้องการพิมพ์','err'); return; }
+  const btn=$('btn-print'); btn.disabled=true;
+  toast('กำลังเตรียมใบนัด '+picked.length+' ใบ…');
+  let extra={};
+  try{ extra=await loadAges([...new Set(picked.map(r=>String(r.hn||'').trim()).filter(Boolean))]); }
+  catch(err){ console.warn(err); }
+  const list=picked.map(r=>slipDataOfRow(r,extra));
+  const noAge=list.filter(d=>!d.ageText).length;
+  Slip.print(list);
+  btn.disabled=false; syncSel();
+  toast('สั่งพิมพ์ '+list.length+' ใบแล้ว'+(noAge?(' · '+noAge+' ใบไม่มีอายุ (ดึงข้อมูลคนไข้ไม่ได้)'):'')
+        +' · ตั้งกระดาษ A5 · ขอบ "ไม่มี" · ปิดหัวท้ายกระดาษ', noAge?'err':'ok');
+};
+/* ตัวเลือกขนาดกระดาษ — โหมดเดียวกับหน้าทำนัด และจำค่าร่วมกัน (แยกตามผู้ใช้ + ตามเครื่อง) */
+function paperLoginKey(){ return String(IDENTITY.doctorCode||IDENTITY.user||'').trim()||'default'; }
+function syncPaperSel(){
+  const sel=$('print-paper'); if(!sel||!window.Slip) return;
+  if(!sel.options.length)
+    sel.innerHTML=Object.keys(Slip.MODES).map(k=>'<option value="'+k+'">'+esc(Slip.MODES[k].label)+'</option>').join('');
+  Slip.setUser(paperLoginKey());
+  sel.value=Slip.modeGet();
+  Slip.applyOrientation(sel.value);
+}
+syncPaperSel();
+if(window.Slip) $('print-paper').onchange=e=>
+  toast('ตั้งกระดาษเป็น: '+Slip.MODES[Slip.modeSet(e.target.value)].label+' — จำไว้ให้เฉพาะผู้ใช้นี้บนเครื่องนี้');
+
+/* ======================= CSV ======================= */
+const HEAD=['ลำดับ','วันที่รับบริการ','วันนัดถัดไป','เวลานัดเริ่ม','เวลานัดถึง','HN','ชื่อผู้รับบริการ',
+            'จุดบริการ','จุดแรกรับ','แพทย์ผู้นัด','Lab','QS Slot','X-Ray','หมายเหตุ'];
+function csvCell(v){ const s=String(v==null?'':v).replace(/\s+/g,' ').trim(); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+$('btn-csv').onclick=()=>{
+  if(!ROWS.length){ toast('ยังไม่มีข้อมูลให้บันทึก','err'); return; }
+  const base=PAGENO*PAGE_SIZE;
+  const lines=[HEAD.join(',')];
+  ROWS.forEach((r,i)=>{
+    const rm=resolveCode(r.depcode,MASTER.roomList,r.department);
+    const room=rm.name||rm.code;
+    lines.push([base+i+1,thDate(r.vstdate),thDate(r.nextdate),hhmm(r.nexttime),hhmm(r.nexttime_end),
+      r.hn,r.ptname,room,r.contact_point,
+      (function(d){return d.name||d.code;})(resolveCode(r.doctor,MASTER.doctorList,'')),
+      r.lab_list_text,r.queue_slot_number,r.xray_list_text,r.note].map(csvCell).join(','));
+  });
+  /* BOM ให้ Excel อ่านภาษาไทยออก */
+  const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='appointment-'+($('f-from').value||'')+'.csv';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+  toast('บันทึก CSV แล้ว ('+ROWS.length+' รายการ)','ok');
+};
+
+/* หมายเหตุ: เดิมหน้านี้ตั้งช่อง "แพทย์ผู้นัด" เป็นแพทย์ที่ล็อกอินให้อัตโนมัติเมื่อเข้ามาจากหน้าทำนัด
+   เลิกใช้แล้ว — ค่าเริ่มต้นเปลี่ยนเป็น "ผู้บันทึกนัด = คนที่ล็อกอิน" แทน (ดู init ท้ายไฟล์)
+   เพราะคนที่นั่งทำนัดกับแพทย์ผู้นัดมักไม่ใช่คนเดียวกัน ล็อกที่แพทย์เลยทำให้ไม่เห็นงานของตัวเอง
+   ช่องแพทย์ผู้นัดยังกรองได้ตามปกติ แค่ไม่ถูกเติมให้เอง */
+
+/* ======================= ตัวกรอง / เหตุการณ์ ======================= */
+['f-from','f-to','f-regdate'].forEach(wrapThaiDate);   /* เปลี่ยนช่องวันที่ native -> ช่อง พ.ศ. + ปุ่มปฏิทิน */
+function setRange(fromISOStr,toISOStr){ $('f-from').value=fromISOStr; $('f-to').value=toISOStr; paintBE(); }
+$('q-today').onclick=()=>{ const t=iso(new Date()); setRange(t,t); search(); };
+$('q-tomo').onclick =()=>{ const t=iso(addD(new Date(),1)); setRange(t,t); search(); };
+$('q-7').onclick    =()=>{ setRange(iso(new Date()),iso(addD(new Date(),7))); search(); };
+$('f-from').onchange=paintBE;
+$('f-to').onchange  =paintBE;
+/* ติ๊ก "บันทึกนัดในวันที่" = ข้ามเงื่อนไขช่วงวันนัด -> หรี่ช่องวันนัดให้เห็นว่าไม่มีผลแล้ว */
+function syncRegMode(){
+  const on=$('f-reg').checked;
+  $('f-regdate').disabled=!on;
+  /* โหมดนี้บังคับเรียงตาม update_datetime อยู่แล้ว ช่องเรียงลำดับเลยไม่มีผล -> ปิดไปด้วย */
+  for(const id of ['f-from','f-to','q-today','q-tomo','q-7','f-latest']) $(id).disabled=on;
+  for(const id of ['rangelab','rangewrap','rangewrap2','latestlab']) $(id).classList.toggle('off',on);
+}
+$('f-reg').onchange=()=>{
+  const on=$('f-reg').checked;
+  if(on&&!$('f-regdate').value){ $('f-regdate').value=$('f-from').value||iso(new Date()); }
+  syncRegMode(); paintBE();
+  if(BMS.connected) search();
+};
+$('f-regdate').onchange=()=>{ paintBE(); if($('f-reg').checked&&BMS.connected) search(); };
+/* ผู้บันทึกนัด — ติ๊กแล้วถึงจะกรอง (ช่องชื่อหรี่ไว้ตอนไม่ติ๊ก จะได้รู้ว่ายังไม่มีผล) */
+function syncMineMode(){
+  const on=$('f-mine').checked;
+  $('f-appuser').disabled=!on;
+  $('minelab').classList.toggle('off',!on);
+}
+/* จำชื่อล็อกอินไว้ — คีย์เดียวกับค่ากระดาษ (แยกตามผู้ใช้ + ตามเครื่อง)
+   ได้จาก officer ครั้งแรกครั้งเดียว ครั้งต่อไปใช้ค่าที่จำไว้ ไม่ต้องยิงถามซ้ำทุกครั้งที่เปิดหน้า */
+const appUserKey=()=>'appc.appuser.'+paperLoginKey();
+function appUserSaved(){ try{ return String(localStorage.getItem(appUserKey())||'').trim(); }catch(e){ return ''; } }
+function appUserSave(v){
+  try{ v?localStorage.setItem(appUserKey(),v):localStorage.removeItem(appUserKey()); }catch(e){}
+  IDENTITY.appUser=v;
+}
+/* เติมชื่อล็อกอินผู้บันทึกที่รู้/จำไว้ — เรียกตอนเชื่อมต่อสำเร็จ (ก่อนหน้านั้นยังไม่รู้ว่าใครล็อกอิน)
+   ไม่ทับค่าที่ผู้ใช้พิมพ์ค้างไว้ */
+function syncMineDefault(){
+  const inp=$('f-appuser'), auto=autoAppUser();
+  /* โชว์ชื่อล็อกอินคู่กับชื่อผู้ใช้บนหัวจอ — ให้เห็นชัดว่าที่กรองอยู่คือ "ล็อกอินตัวไหน"
+     (ชื่อ-สกุลอย่างเดียวเทียบกับ app_user ในฐานไม่ได้) */
+  const lg=$('c-login'), first=appUserMatch(auto)[0]||'';   /* ใส่หลายค่าได้ -> โชว์ตัวแรก (ชื่อล็อกอิน) */
+  if(lg){ lg.textContent=first?(' · ล็อกอิน '+first):''; lg.hidden=!first; }
+  if(!inp.value.trim()&&auto) inp.value=auto;
+  inp.placeholder=auto?'ชื่อล็อกอินผู้บันทึก (app_user)':'คลิกเพื่อเลือกชื่อล็อกอินของคุณจากรายการ';
+  inp.title='oapp.app_user = ชื่อล็อกอิน HOSxP — เติมให้อัตโนมัติจากตาราง officer'
+           +' (officer_name = ชื่อผู้ล็อกอิน -> officer_login_name)'
+           +'\nคลิกที่ช่องเพื่อดูรายการ app_user ที่มีอยู่จริง · ใส่หลายค่าได้ คั่นด้วย ,'
+           +'\nค่าที่ใช้ล่าสุดจะถูกจำไว้ให้เฉพาะผู้ใช้นี้บนเครื่องนี้';
+}
+/* จัดรูปค่าที่พิมพ์ (คั่นด้วย , ให้เป็นระเบียบ) แล้วจำไว้ */
+function commitAppUser(){
+  const inp=$('f-appuser');
+  const v=appUserMatch(inp.value).join(', ');
+  inp.value=v;
+  appUserSave(v);
+  return v;
+}
+$('f-mine').onchange=async()=>{
+  const on=$('f-mine').checked;
+  syncMineMode();
+  if(!on){ if(BMS.connected) search(); return; }
+  if(!$('f-appuser').value.trim()){
+    await resolveAppUser();        /* ยังไม่รู้ชื่อล็อกอิน -> ถามตาราง officer ให้ก่อน */
+    $('f-appuser').value=autoAppUser();
+  }
+  if(!$('f-appuser').value.trim()){
+    loadRecorders();               /* หาให้ไม่เจอ -> เปิดรายการ app_user จริงให้เลือกเอง */
+    $('f-appuser').focus();
+    toast('หาชื่อล็อกอินของคุณในตาราง officer ไม่เจอ — เลือกจากรายการในช่อง “ผู้บันทึกนัด” แล้วระบบจะจำไว้ให้','err');
+    return;
+  }
+  if(BMS.connected) search();
+};
+$('f-appuser').onchange=()=>{ commitAppUser(); if($('f-mine').checked&&BMS.connected) search(); };
+$('f-appuser').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ e.preventDefault(); commitAppUser(); search(); }
+});
+$('f-appuser').addEventListener('focus',()=>loadRecorders());
+$('f-go').onclick=()=>search();
+$('f-clear').onclick=()=>{
+  const t=iso(new Date());
+  setRange(t,t);
+  $('f-hn').value=''; $('f-room').value=''; $('f-clinic').value=''; $('f-doctor').value=''; $('f-contact').value='';
+  $('f-latest').checked=false; $('f-reg').checked=false; $('f-regdate').value='';
+  $('f-mine').checked=false; $('f-appuser').value=autoAppUser();
+  syncRegMode(); syncMineMode(); paintBE(); toast('ล้างตัวกรองแล้ว');
+};
+$('f-hn').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); search(); } });
+/* ช่องพิมพ์ค้นหา: เลือกจากรายการหรือกด Enter -> ค้นใหม่ทันที
+   แล้วเขียนค่ากลับเป็น "รหัส · ชื่อ" ให้เห็นชัดว่าจับคู่ได้กับรายการไหน */
+const PICKERS=[['f-room','roomList'],['f-clinic','clinicList'],['f-doctor','doctorList']];
+function canon(id,key){
+  const inp=$(id), code=pickCode(MASTER[key],inp.value);
+  if(!code){ inp.value=''; return; }
+  const rec=(MASTER[key]||[]).find(x=>String(x.code)===code);
+  if(rec) inp.value=rec.code+' · '+rec.name;
+}
+for(const [id,key] of PICKERS){
+  $(id).onchange=()=>{ canon(id,key); if(BMS.connected) search(); };
+  $(id).addEventListener('keydown',e=>{
+    if(e.key==='Enter'){ e.preventDefault(); canon(id,key); search(); }
+  });
+}
+/* จุดแรกรับเป็นชื่อล้วน ไม่ต้องแปลงเป็น "รหัส · ชื่อ" แค่จัดตัวพิมพ์ให้ตรงกับรายการ */
+$('f-contact').onchange=()=>{
+  const v=pickContact($('f-contact').value);
+  $('f-contact').value=v;
+  if(BMS.connected) search();
+};
+$('f-contact').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ e.preventDefault(); $('f-contact').value=pickContact($('f-contact').value); search(); }
+});
+$('f-latest').onchange=()=>{ if(BMS.connected) search(); };
+
+$('pg-prev').onclick=()=>{ if(PAGENO>0){ PAGENO--; search({keepPage:true}); $('tblwrap').scrollTop=0; } };
+$('pg-next').onclick=()=>{ if(HASMORE){ PAGENO++; search({keepPage:true}); $('tblwrap').scrollTop=0; } };
+
+addEventListener('scroll',()=>{ $('topfix').classList.toggle('stuck',scrollY>4); },{passive:true});
+
+/* ======================= เริ่มทำงาน ======================= */
+(function init(){
+  const t=iso(new Date());
+  setRange(t,t);
+  /* ค่าเริ่มต้นของหน้า = นัดที่ถูกบันทึกวันนี้ (ไม่จำกัดว่าวันนัดคือวันไหน) */
+  $('f-reg').checked=true; $('f-regdate').value=t;
+  syncRegMode(); syncMineMode(); paintBE();
+  $('srvwarn').hidden=(location.protocol==='http:'||location.protocol==='https:');
+  renderTable();
+  BMS.auto().then(async()=>{
+    if(!BMS.connected) return;
+    /* ค่าเริ่มต้นของหน้า = "นัดที่ฉันเป็นผู้บันทึกวันนี้" (เดิมล็อกที่ช่องแพทย์ผู้นัด
+       ซึ่งไม่ตรงงานจริง — คนทำนัดกับแพทย์ผู้นัดมักไม่ใช่คนเดียวกัน) */
+    await resolveAppUser();       /* ต้องรอ master โหลดเสร็จก่อน (connect await ให้แล้ว) */
+    if(autoAppUser()){
+      $('f-appuser').value=autoAppUser();
+      $('f-mine').checked=true;
+      syncMineMode();
+    } else console.warn('ยังไม่รู้ชื่อล็อกอิน — ไม่ได้ตั้งตัวกรอง "ผู้บันทึกนัด" ให้อัตโนมัติ');
+    search();
+  });
+})();
+</script>
+</body>
+</html>
